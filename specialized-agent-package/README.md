@@ -1,121 +1,83 @@
 ---
 document_type: 外置专属 Agent 说明
-purpose: 根据自然语言生成或增量编辑表单设计器的 PC flow FormAction
+purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 ---
 
-# 通用表单生成 Agent
+# 表单设计 Agent
 
-这是一个严格按 `specialized-agent-development-guide.md` 实现的外置三件套插件：
+该插件严格遵循 `specialized-agent-development-guide.md` 的三件套结构，并以 `form-agent-prompt.md` 为行为基线：
 
-- `manifest.yaml`：员工身份、人设和展示信息。
-- `bootstrap.py`：平台启动入口。
-- `agent_definition.py`：append 意图、Plan、Native Capability、Output Pipeline 和 Action 编译器。
+- `manifest.yaml`：员工身份、人设、执行边界和委派说明。
+- `bootstrap.py`：平台要求的 `register_specialized_agent(context)` 入口。
+- `agent_definition.py`：append 意图、Plan、结构化输出和单一提案 Pipeline。
+- `form_generation/proposal.py`：宿主上下文归一化、动作协议编译和安全校验。
 
 ## 支持范围
 
-创建表单复用页面专家的节点事件展示：先发送 `page_output.skeleton` 表单骨架，再批量生成字段配置并逐个发送携带完整字段 JSON 的 `page_output.node.completed`，最后发送 `page_output.completed` 完整 FormSchema。创建事件的 `block_id` 统一为 `page_output`，不再同时发送旧 `form_output.*` 创建事件，避免重复节点。
+首期严格限定为 Schema `1.0.0` 的单层 Flow 表单：
 
-骨架和字段生成步骤使用 `output_visibility="preview"`，主聊天会展示表单骨架和字段生成结果的完整 JSON；平台也可使用节点事件展示“骨架生成 → 组件1…组件N → 表单结构已校验”的流程。最终校验步骤仍使用 `final_artifact` 输出完整 FormSchema。
+- 根据自然语言一次性生成完整字段列表，例如“员工入职登记表”。
+- 支持 `Input`、`Input.TextArea`、`DatePicker`、`TimePicker`、`NumberPicker`、`SelectSingle`、`SelectMulti`、`CheckboxGroup`、`Switch`。
+- 从同一份字段定义同时编译 `presentation.fields` 和 `form.add_component` Actions，避免展示与执行数据漂移。
+- 修改现有字段属性或选项，在根层或真实锚点前后插入，删除、移动组件。
+- 仅转换明确标记为未保存的新字段；有损转换先澄清。
+- 在宿主明确声明时生成字段/表单规则和公式动作。
+- 处理 `applied`、`rejected`、`conflict` 等回执，并区分提案、应用和保存。
 
-这里只复用展示事件协议，不把表单转换为页面 Schema：`output_structured.kind` 和 pipeline 的 `artifact_kind` 仍为 `form_output`，最终数据仍位于 `specialized_state.form_output.form_schema_json`。修改表单的 `form_output.completed` 事件和 Action 输出保持不变。
+首期不支持容器嵌套、槽位、Grid、直接生成持久化节点 ID、直接应用或保存。Agent 不操作 React、DOM、画布、Store 或浏览器存储。
 
-修改表单仍输出 `form_actions.v1` 小 JSON，由前端 Action Reducer 按真实 `fieldId` 修改当前大 Schema；不会重新生成未修改字段。
+## 宿主上下文
 
-首版只生成 PC `flow` 布局的三种字段：
+每次 Run 应在顶层 `context` 提供：
 
-| 用户可说的组件 | Schema `componentName` | `title` |
-|---|---|---|
-| 单行文本 | `Input` | `单行文本` |
-| 下拉单选 | `SelectSingle` | `下拉单选` |
-| 复选框 | `CheckboxGroup` | `复选框` |
+- `requestId`：本次业务请求关联 ID。
+- `schemaVersion`：首期固定为 `1.0.0`。
+- `target`：`schemaId`、`formId`、`revision`，可附带 `appId`、`layoutId`。
+- `currentSchema`：当前完整 Schema；新建时至少提供空 `fields`。
+- `selection`：发送时的真实 `nodeId` 和未保存状态。
+- `canvas`：`layoutMode: flow` 和 `isBlank`。
+- `capabilities`：组件目录、每个组件的可写属性、动作和可选规则目录。
+- `fieldNameRules`：命名正则、最大长度、保留名和可选字段数上限。
+- `optionRules`：至少包括选项数量上限。
+- `supportedActionVersions`：设计器实际支持的动作协议版本。
+- `executionResult`：前次提案的真实执行回执。
 
-不生成移动端、Grid、容器嵌套、`Input.TextArea`、`NumberPicker`、`Radio.Group`、`SelectMulti` 或发布/保存动作。
+缺少 `form.add_component`、动作版本、组件目录或空白画布证明时，编译器拒绝生成完整表单。字段 `name`、`clientRef`、选项值和可写属性均由 Python 编译器校验。
 
-## 已确认的 Schema 规则
+## 输出协议
 
-当前表单设计器的根结构使用 `packages/form-schema/src/types.ts` 的实际 `FormSchema`：
+最终产物固定为一个 `form-agent.v1` 提案，状态为 `ready`、`needs_clarification`、`unsupported` 或 `no_change`。
 
-```json
-{
-  "schemaVersion": "1.1.0",
-  "id": "form_generated", 
-  "props": {
-    "description": "",
-    "columns": 2,
-    "labelPosition": "left",
-    "labelWidth": 80,
-    "textAlign": "left",
-    "rowHeight": "16px"
-  },
-  "layoutMode": "flow",
-  "fields": []
-}
-```
+新建完整表单时，`ready` 同时包含：
 
-每个字段节点统一为 `{ id, componentName, componentCategory, title, props }`，`componentCategory` 不可缺失。设计器 Schema 的分类类型为 `"field" | "container" | "system" | "helper" | "custom"`；当前支持的 `Input`、`SelectSingle`、`CheckboxGroup` 在各自 meta 中均为 `"field"`。编译器在骨架、字段补全和最终输出阶段固定补齐 `componentCategory: "field"`，不交给模型生成，最终裁剪也会保留该属性。组件身份和默认值来自：
+- `presentation.kind = form_field_list`：ai-chat 在完整 JSON 解析和契约校验后一次性渲染全部字段。
+- `result.kind = form_actions`、`mode = replace_empty_form`：设计器事务应用同源 `form.add_component` Actions。
+- `validation`：Schema、Action 版本和字段数量摘要。
 
-- `packages/form-designer/src/configs/component-metas/basic/input.meta.ts`
-- `packages/form-designer/src/configs/component-metas/basic/select-single.meta.ts`
-- `packages/form-designer/src/configs/component-metas/basic/checkbox-group.meta.ts`
-- `packages/form-designer/src/configs/component-metas/utils/default-complex-options.ts`
-- `packages/form-designer/src/modules/property-panel/sharedProperties.ts`
-
-三种字段的编译结果规则：
-
-### `Input`
-
-`props` 包含 `label`、`required`、`name`、`placeholder`、`defaultValueConfig: "undefined"`、`defaultValue`、`allowClear`、`showLimitHint`、`textMaxLength`、`enableQuickCopy`、`enableLinkParser`、`format: "none"`、`isUnique: false`，以及共享默认值 `enableCustomTitle: false`、`customTitle: ""`、`extra: ""`、`extraType: "icon"`、`hideTitle: false`、`readOnlyDisplay: false`、`size: "medium"` 和 `identifiers.name`。
-
-### `SelectSingle`
-
-`props` 包含 `label`、`required`、`name`、`placeholder: "请选择"`、`defaultValue`、`options`、`showSearch: false`、`allowClear: true`、`popupMatchSelectWidth: false`、`enableColor: false`、共享默认值和 `identifiers.name`。
-
-### `CheckboxGroup`
-
-`props` 包含 `label`、`required`、`name`、`defaultValue: []`、`options`、`direction: "horizontal"`、`supportReverseSelect: true`、共享默认值和 `identifiers.name`。
-
-`options` 固定编译为：
-
-```json
-{
-  "dataSource": [
-    {"primaryKey":"1","value":"1","label":"选项1","activeKey":false,"color":null,"disabled":false}
-  ],
-  "isColor": false,
-  "nextValueSeed": 2
-}
-```
-
-模型只提交 `value` / `label` 等受控槽位；编译器补齐 `primaryKey`、`activeKey`、`color`、`disabled` 和 `nextValueSeed`，并过滤非法默认值。
+字段只携带 `clientRef`、`componentName` 和合法 `props`，不携带持久化 `id`。设计器保存成功后回传 `clientRef -> final ID`。增量编辑使用 `form_actions + append`。
 
 ## 运行编排
 
-创建意图 `create_form` 的 `output_policy` 指向 `form_generation` pipeline：
+`design_form` intent 指向单一 `form_proposal_generation` Pipeline：
 
-1. `form.skeleton.generate`：模型只生成表单标题、布局和字段占位符，编译器分配稳定字段 ID，并发送 `page_output.skeleton`。
-2. `form.field.hydrate`：模型一次性生成所有字段的业务配置，编译器合并到骨架，然后按字段顺序发送 `page_output.node.completed`。
-3. `form.schema.validate`：裁剪并校验最终 FormSchema，发送 `page_output.completed`。
+1. 归一化本轮宿主快照，不从历史对话补猜画布状态。
+2. Native Capability 只生成受控 IR，根对象统一为 `{"plan_items":[{"capability":"...","slots":{...}}]}`；一个 `proposal.*` 状态，新建时再生成若干 `form.field.define`。
+3. Python 编译器完成字段名、选项、组件、可写属性、空白 Flow 和动作版本校验。平台回调使用文档签名 `(ir_payload, context)`，支持位置和关键字调用。缺失 `currentSchema`、`capabilities` 或 `supportedActionVersions` 时返回 `HOST_CONTEXT_REQUIRED` 澄清，不生成动作；业务校验失败返回 `failed`、`form_proposal_validation_failed` 和具体原因，不把无效提案作为成功结果。未知运行时异常仍交由平台处理。
+4. handler 一次性返回完整提案；平台标准 `pipeline.step.output.completed` 可交付最终 output。
+5. 额外发布唯一业务事件 `form.proposal.completed`；不发布骨架或逐字段业务事件。
+6. ai-chat 一次性展示字段列表，设计器使用独立 Apply 幂等键事务应用、保存并回传 ID 映射。
 
-创建事件载荷与页面专家的对应关系：
-
-| 事件 | 关键字段 |
-|---|---|
-| `page_output.skeleton` | `block_id: "page_output"`、`skeleton_json`（FormSchema 骨架）、`skeleton_source: "external_native_capability"` |
-| `page_output.node.completed` | `node_id`、`component_name`、从 1 开始的 `component_index`、`component_total`、`node`（完整字段） |
-| `page_output.completed` | `output_kind: "form_schema_json"`、`form_schema_json`、`validation.field_count` |
-
-所有创建事件均带 `title` 和 `status`。前两种状态为 `generating`，最终状态为 `completed`；字段生成失败时不会发送成功节点或最终完成事件。最终事件不包含 `page_schema_json`，消费方应按 `output_kind` 区分表单和页面产物。
-
-修改意图 `modify_form` 的 `output_policy` 指向 `form_action_generation` pipeline，只生成一个 `form_actions.v1` Action。Native Capability 只允许受控的创建配置、字段添加、修改、修改选项、移动和删除动作，避免模型直接伪造 `id`、`componentName`、`children` 或完整 Schema。
-
-调用方如果传入运行上下文，按开发文档放在请求体顶层 `context`；本插件读取其中的 `current_page_schema`，编辑时只输出目标字段的增量 Action，并始终将输出限制为 PC `flow`。
+`/invoke` 的幂等键只防止重复创建 Run，不能代替设计器 Apply 幂等。自定义 `form.proposal.completed` 的透传、持久化和断线补发需在目标平台集成验证；即使不透传，标准步骤完成事件仍携带完整提案。
 
 ## 校验
 
-本地回归测试不依赖平台 SDK，使用 SDK 替身检查步骤的 preview / final_artifact 配置，并通过真实编译器验证骨架、三种组件的完整属性与选项、页面节点事件顺序和最终 FormSchema 没有丢失，同时覆盖失败分支、事件发布方式与修改分支兼容性：
+本地测试无需平台 SDK：
 
 ```sh
+python3 -m py_compile specialized-agent-package/*.py specialized-agent-package/form_generation/*.py
 python3 -m unittest discover -s specialized-agent-package/tests -v
 ```
 
-在能够提供 `specialized.builder` SDK 的平台环境中，还需运行插件包校验和真实 Run。当前工作区没有该运行时依赖，本地测试不替代平台验收；源码更新后需重新激活插件，验证主聊天按页面专家展示骨架、逐字段节点和校验完成节点，并确认平台能从 `page_output.completed` 的 `form_schema_json` 消费最终表单。如果平台将此事件硬编码为页面 Schema，需要在平台侧按 `output_kind` 适配；本包不包含平台前端代码。
+回归覆盖四种提案状态、9 种组件、字段列表与 Actions 同源、无持久化 ID、空白 Flow 限制、字段命名、保留名、重复 `clientRef`、选项完整性、可写属性、增量动作目标和唯一最终事件。旧三组件编译器只作为兼容模块保留，不注册为生产 Pipeline，也不参与新建表单输出。
+
+平台验收仍需提供真实 `specialized.builder` SDK，并验证完整 JSON 交付、ai-chat 一次性渲染、设计器事务执行、Apply 幂等、一次撤销、保存重开、`clientRef -> final ID` 回执、SSE 重连去重、取消和 revision 冲突处理。

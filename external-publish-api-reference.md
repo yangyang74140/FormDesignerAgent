@@ -28,7 +28,8 @@
 4. **为每次调用提供主体标识**：每次请求都传入业务侧稳定的 user_id。它用于隔离外部主体的会话与运行记录，不是控制台登录账号。
 5. **先查询附件能力**：上传文件前调用 attachment-capabilities，按返回的 MIME、扩展名、大小和数量限制做前置校验。格式是否支持由已发布服务版本决定。
 6. **上传并等待解析**：专属附件调用服务级 attachments 接口；跨 Agent 复用时调用 reusable-attachments 接口并显式选择 parser_service_id，轮询状态直到 ready。
-7. **按事件序号保存进度**：收到事件后保存最新 sequence_no。连接中断时从该序号之后补发历史事件，再恢复订阅，避免重复展示或遗漏输出。
+7. **按需启动文档摘要**：拿到 ready 的 attachment_id 后，可独立调用摘要启动接口，再用摘要状态接口查看 total_nodes 与 summarized_nodes；摘要成功后再调用 Agent，摘要失败或关闭时仍可走原有兜底。
+8. **按事件序号保存进度**：收到事件后保存最新 sequence_no。连接中断时从该序号之后补发历史事件，再恢复订阅，避免重复展示或遗漏输出。
 
 ## 最小成功调用
 
@@ -210,10 +211,32 @@ curl -X POST "$BASE_URL/openapi/v1/auth/token/revoke" \
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `connected` | `SSE event` | 否 | 流连接建立事件，包含 run_id。 |
-| `status.update` | `SSE event` | 否 | 运行状态更新，例如等待模型、计划生成、工具执行。 |
+| `status.update` | `SSE event` | 否 | 运行、治理、委派和子编排状态更新；具体 status 值及来源事件见下方 SSE 事件速览。 |
 | `reasoning.delta` | `SSE event` | 否 | 深度思考增量；模型未开启深度思考时不会出现。 |
 | `text.delta` | `SSE event` | 否 | 正文增量。 |
-| `message.completed` | `SSE event` | 否 | 正常完成事件。 |
+| `tool.call.started` | `SSE event` | 否 | 工具或能力开始执行。 |
+| `tool.call.allowed` | `SSE event` | 否 | 工具调用已通过权限、护栏和运行时准入。 |
+| `tool.call.blocked` | `SSE event` | 否 | 工具调用被权限、护栏或治理策略阻断。 |
+| `tool.result` | `SSE event` | 否 | 工具或能力执行结果，包含成功、失败或拒绝状态。 |
+| `tool.waiting` | `SSE event` | 否 | 工具调用等待确认或补充处理。 |
+| `interrupt.waiting` | `SSE event` | 否 | 运行暂停并等待用户、人工或外部处理。 |
+| `interrupt.resolved` | `SSE event` | 否 | 等待事项已处理；不代表本轮运行已完成。 |
+| `run.resumed` | `status.update.source_event_type` | 否 | 运行从等待状态恢复；对外折叠到 status.update。 |
+| `artifact.ready` | `SSE event` | 否 | Agent 生成的文件产物已就绪，可通过产物下载接口获取。 |
+| `card_summary.source` | `SSE event` | 否 | 运行卡片摘要来源已登记或摘要任务待处理。 |
+| `card_summary.updated` | `SSE event` | 否 | 运行卡片摘要已更新。 |
+| `page_generation.skill.started / page_generation.skill.completed` | `structured SSE event` | 否 | 页面生成技能开始或完成；以结构化 payload 交付页面产物。 |
+| `page_output.skeleton / page_output.node.completed` | `structured SSE event` | 否 | 页面骨架建立或页面节点生成完成。 |
+| `sandbox.*` | `structured SSE event` | 否 | 沙箱类结构化事件；具体事件名由产物协议定义，客户端应容忍未知事件。 |
+| `pipeline.step.aborted` | `SSE event` | 否 | 子编排步骤被取消或中止。 |
+| `pipeline.step.http.completed` | `SSE event` | 否 | 子编排中的 HTTP 调用成功。 |
+| `pipeline.step.http.failed` | `SSE event` | 否 | 子编排中的 HTTP 调用失败。 |
+| `pipeline.step.output.delta` | `SSE event` | 否 | 子编排步骤输出的增量片段。 |
+| `pipeline.step.output.completed` | `SSE event` | 否 | 子编排步骤输出已收口。 |
+| `followup_suggestions` | `SSE event` | 否 | 本轮回答后的推荐追问。 |
+| `message.completed` | `SSE event` | 否 | 助手消息已完成，包含消息标识和引用。 |
+| `message.error` | `SSE event` | 否 | 流式处理失败，包含错误码和可展示说明。 |
+| `run.cancelled` | `SSE event` | 否 | 运行已取消，后续不再继续。 |
 
 ### 调用示例
 
@@ -291,10 +314,32 @@ curl -N -X POST "$BASE_URL/openapi/v1/services/svc_xxx/invoke" \
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `connected` | `SSE event` | 否 | 流连接建立事件，包含 run_id。 |
-| `status.update` | `SSE event` | 否 | 运行状态更新。 |
+| `status.update` | `SSE event` | 否 | 运行、治理、委派和子编排状态更新；具体 status 值及来源事件见下方 SSE 事件速览。 |
 | `reasoning.delta` | `SSE event` | 否 | 深度思考增量。 |
 | `text.delta` | `SSE event` | 否 | 正文增量。 |
-| `message.completed` | `SSE event` | 否 | 正常完成事件。 |
+| `tool.call.started` | `SSE event` | 否 | 工具或能力开始执行。 |
+| `tool.call.allowed` | `SSE event` | 否 | 工具调用已通过权限、护栏和运行时准入。 |
+| `tool.call.blocked` | `SSE event` | 否 | 工具调用被权限、护栏或治理策略阻断。 |
+| `tool.result` | `SSE event` | 否 | 工具或能力执行结果，包含成功、失败或拒绝状态。 |
+| `tool.waiting` | `SSE event` | 否 | 工具调用等待确认或补充处理。 |
+| `interrupt.waiting` | `SSE event` | 否 | 运行暂停并等待用户、人工或外部处理。 |
+| `interrupt.resolved` | `SSE event` | 否 | 等待事项已处理；不代表本轮运行已完成。 |
+| `run.resumed` | `status.update.source_event_type` | 否 | 运行从等待状态恢复；对外折叠到 status.update。 |
+| `artifact.ready` | `SSE event` | 否 | Agent 生成的文件产物已就绪，可通过产物下载接口获取。 |
+| `card_summary.source` | `SSE event` | 否 | 运行卡片摘要来源已登记或摘要任务待处理。 |
+| `card_summary.updated` | `SSE event` | 否 | 运行卡片摘要已更新。 |
+| `page_generation.skill.started / page_generation.skill.completed` | `structured SSE event` | 否 | 页面生成技能开始或完成；以结构化 payload 交付页面产物。 |
+| `page_output.skeleton / page_output.node.completed` | `structured SSE event` | 否 | 页面骨架建立或页面节点生成完成。 |
+| `sandbox.*` | `structured SSE event` | 否 | 沙箱类结构化事件；具体事件名由产物协议定义，客户端应容忍未知事件。 |
+| `pipeline.step.aborted` | `SSE event` | 否 | 子编排步骤被取消或中止。 |
+| `pipeline.step.http.completed` | `SSE event` | 否 | 子编排中的 HTTP 调用成功。 |
+| `pipeline.step.http.failed` | `SSE event` | 否 | 子编排中的 HTTP 调用失败。 |
+| `pipeline.step.output.delta` | `SSE event` | 否 | 子编排步骤输出的增量片段。 |
+| `pipeline.step.output.completed` | `SSE event` | 否 | 子编排步骤输出已收口。 |
+| `followup_suggestions` | `SSE event` | 否 | 本轮回答后的推荐追问。 |
+| `message.completed` | `SSE event` | 否 | 助手消息已完成，包含消息标识和引用。 |
+| `message.error` | `SSE event` | 否 | 流式处理失败，包含错误码和可展示说明。 |
+| `run.cancelled` | `SSE event` | 否 | 运行已取消，后续不再继续。 |
 
 ### 调用示例
 
@@ -314,6 +359,117 @@ curl -N -X POST "$BASE_URL/openapi/v1/agents/agent_xxx/invoke" \
 - release_id 用于固定调用某个已发布版本；后续更新发布不会影响指定版本。不传 release_id 时，默认使用当前正式版本。
 - release_id 必须属于反查到的 service_id 且版本状态可用；无效时请求会被拒绝，不会静默切换到最新版本。
 - 平台复用附件必须先通过 attachment 凭证创建并等待 ready；目标 Agent 未绑定对应解析器或版本时，invoke 会拒绝该附件。
+
+## GET /openapi/v1/agents/{agent_id}/chat-config
+
+**查询 Agent 开场白和推荐问题** · 已可用
+
+**接口状态**：已可用
+
+**接入提示**：当前接口可作为正式接入入口。调用前仍需确认服务已发布、调用方已获得授权，并在客户端处理流式终态与异常响应。
+
+**用途**：读取已发布 Agent 当前版本的开场白、推荐问题和输入框配置。
+
+**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+
+**适用场景**：进入第三方聊天页面时调用，用于渲染聊天空状态；不会启动模型、创建 Run 或创建会话。
+
+### 调用前确认
+
+1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
+2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
+3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
+4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+
+### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `agent_id` | `path string` | 是 | 已发布且已授权的 Agent 标识。 |
+
+### 响应字段 / 事件字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `agent_id` | `string` | 是 | 请求的 Agent 标识。 |
+| `service_id` | `string` | 是 | 该 Agent 对应的已发布服务标识。 |
+| `release_id` | `string` | 是 | 配置来源的当前发布版本。 |
+| `profile_id` | `string` | 是 | 发布快照中的 Agent Profile 标识。 |
+| `display_name` | `string` | 否 | Agent 展示名称。 |
+| `avatar` | `string` | 否 | Agent 头像公共路径。 |
+| `opening_message` | `string` | 否 | 开场白。 |
+| `suggested_questions` | `string[]` | 否 | 推荐问题列表。 |
+| `placeholder` | `string` | 否 | 输入框占位文案。 |
+| `empty_state_hint` | `string` | 否 | 空状态提示。 |
+
+### 调用示例
+
+```bash
+curl "$BASE_URL/openapi/v1/agents/agent_xxx/chat-config" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+### 调用规则与限制
+
+- 只读取已发布 Release 快照，不读取未发布的编辑草稿；二开 Agent 的包内配置也按发布版本返回。
+- 查询接口不会创建 conversation_id、Run 或模型调用。首次真正调用 Agent 时，如果请求未传 conversation_id，调用链才会创建会话并在响应/事件中返回会话标识。
+- 后续多轮调用应复用首次调用返回的 conversation_id；传入不存在或无权访问的会话时沿用现有会话校验。
+- 当前发布版本更新后，重新查询才会看到新配置；固定 release_id 的调用仍按调用时指定版本执行。
+
+## GET /openapi/v1/services/{service_id}/chat-config
+
+**按服务查询开场白和推荐问题** · 已可用
+
+**接口状态**：已可用
+
+**接入提示**：当前接口可作为正式接入入口。调用前仍需确认服务已发布、调用方已获得授权，并在客户端处理流式终态与异常响应。
+
+**用途**：按已发布服务读取当前版本的开场白、推荐问题和输入框配置。
+
+**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+
+**适用场景**：进入第三方聊天页面时调用；不会启动模型、创建 Run 或创建会话。
+
+### 调用前确认
+
+1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
+2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
+3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
+4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+
+### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `service_id` | `path string` | 是 | 已发布且已授权的 Agent 服务标识。 |
+
+### 响应字段 / 事件字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `agent_id` | `string` | 是 | 该服务发布快照绑定的 Agent 标识。 |
+| `service_id` | `string` | 是 | 请求的服务标识。 |
+| `release_id` | `string` | 是 | 配置来源的当前发布版本。 |
+| `profile_id` | `string` | 是 | 发布快照中的 Agent Profile 标识。 |
+| `display_name` | `string` | 否 | Agent 展示名称。 |
+| `avatar` | `string` | 否 | Agent 头像公共路径。 |
+| `opening_message` | `string` | 否 | 开场白。 |
+| `suggested_questions` | `string[]` | 否 | 推荐问题列表。 |
+| `placeholder` | `string` | 否 | 输入框占位文案。 |
+| `empty_state_hint` | `string` | 否 | 空状态提示。 |
+
+### 调用示例
+
+```bash
+curl "$BASE_URL/openapi/v1/services/service_xxx/chat-config" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+### 调用规则与限制
+
+- 只读取该服务已发布 Release 快照，不读取未发布的编辑草稿；二开 Agent 同样适用。
+- 查询接口不会创建 conversation_id、Run 或模型调用；首次真正调用服务时才按既有调用链创建会话。
+- 该接口与 /openapi/v1/agents/{agent_id}/chat-config 返回同一份发布配置。
 
 ## GET /openapi/v1/agents
 
@@ -510,7 +666,7 @@ curl "$BASE_URL/openapi/v1/agents/agent_xxx/attachment-capabilities?user_id=user
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `service_id` | `path string` | 是 | 要处理该文件的已发布服务标识。 |
-| `file` | `multipart file` | 是 | 待解析的文件；类型和大小必须符合能力查询结果。 |
+| `files` | `multipart file[]` | 是 | 重复传入的待解析文件；类型和大小必须符合能力查询结果。兼容旧的单个 file 字段。 |
 | `user_id` | `string` | 是 | 外部人维度主键，标准口径下的主体隔离键。 |
 | `release_id` | `multipart string` | 否 | 可选；固定使用指定的已发布版本。 |
 
@@ -518,13 +674,13 @@ curl "$BASE_URL/openapi/v1/agents/agent_xxx/attachment-capabilities?user_id=user
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `attachment_id` | `string` | 否 | 附件引用 ID，后续传给 invoke。 |
-| `service_id` | `string` | 否 | 附件绑定的服务。 |
-| `release_id` | `string` | 否 | 附件绑定的已发布版本。 |
-| `attachment_state` | `string` | 否 | 上传状态，初始为 staged。 |
-| `parse_status` | `string` | 否 | 解析状态，初始为 pending。 |
-| `file_name` | `string` | 否 | 原始文件名。 |
-| `mime_type` | `string` | 否 | 文件 MIME 类型。 |
+| `data[]` | `object[]` | 否 | 按上传顺序返回每个文件的处理结果。 |
+| `data[].status` | `"succeeded" \| "failed"` | 否 | 单文件处理状态。 |
+| `data[].attachment_id` | `string` | 否 | 成功项的附件引用 ID，后续传给 invoke。 |
+| `data[].service_id` | `string` | 否 | 成功项绑定的服务。 |
+| `data[].release_id` | `string` | 否 | 成功项绑定的已发布版本。 |
+| `data[].file_name` | `string` | 否 | 原始文件名。 |
+| `data[].error` | `object \| null` | 否 | 失败项的低敏错误码和文案。 |
 
 ### 调用示例
 
@@ -533,14 +689,17 @@ curl -X POST "$BASE_URL/openapi/v1/services/svc_xxx/attachments" \
   -H "Authorization: Bearer {access_token}" \
   -F "user_id=user_001" \
   -F "release_id=rel_xxx" \
-  -F "file=@./example.ofd"
+  -F "client_upload_key=file-001" \
+  -F "files=@./example.ofd" \
+  -F "files=@./appendix.pdf"
 ```
 
 ### 调用规则与限制
 
 - 平台根据已发布版本的能力声明自动选择内置解析器或服务包中的受控解析器。
 - 上传接口不接受 parser_id，不返回完整解析正文。
-- 上传成功不等于解析完成；需要查询附件状态。
+- 上传成功不等于解析完成；需要查询每个成功项的附件状态。单个文件失败不会回滚同批其他文件。
+- 批量上传使用重复的 files 字段；client_upload_key 可重复传入多个值，按文件顺序匹配。
 
 ## GET /openapi/v1/services/{service_id}/attachments/{attachment_id}
 
@@ -596,6 +755,190 @@ curl "$BASE_URL/openapi/v1/services/svc_xxx/attachments/att_xxx?user_id=user_001
 - failed 时不能当作无附件继续执行，客户端应展示 parse_error_code 并按业务决定是否重试。
 - 状态接口只返回元数据和统计信息，不返回全文。
 
+## POST /openapi/v1/services/{service_id}/attachments/{attachment_id}/summary
+
+**启动服务附件摘要** · 已可用
+
+**接口状态**：已可用
+
+**接入提示**：当前接口可作为正式接入入口。调用前仍需确认服务已发布、调用方已获得授权，并在客户端处理流式终态与异常响应。
+
+**用途**：显式启动或继续指定服务附件的文档树摘要任务，返回任务状态和节点进度。
+
+**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+
+**适用场景**：希望在调用 Agent 前主动准备文档摘要，或继续一个已暂停的摘要任务时调用。
+
+### 调用前确认
+
+1. **确认摘要凭证**：使用 invoke 类型 access_token 或兼容的 API Key，并确保调用方拥有目标 service_id 的权限。
+2. **确认附件归属**：attachment_id 必须属于目标 service_id，user_id 必须与上传服务附件时使用的主体标识一致。
+3. **显式启动并轮询**：POST 启动接口幂等；结构树未准备好时先等待并重试，status=succeeded 后再调用 Agent。
+
+### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `service_id` | `path string` | 是 | 附件所属的已发布服务标识。 |
+| `attachment_id` | `path string` | 是 | 服务附件上传接口返回的附件 ID。 |
+| `user_id` | `query string` | 是 | 上传附件时使用的外部主体隔离键。 |
+| `release_id` | `query string` | 否 | 可选；固定校验指定的已发布服务版本。 |
+
+### 响应字段 / 事件字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `attachment_id` | `string` | 是 | 附件引用 ID。 |
+| `artifact_id` | `string` | 是 | 当前解析产物 ID；同一产物共享摘要任务。 |
+| `summary_task_id` | `string \| null` | 否 | 摘要任务 ID；尚未创建任务时可能为空。 |
+| `summary_enabled` | `boolean` | 是 | 当前附件解析快照是否开启摘要。 |
+| `status` | `string` | 是 | 摘要状态：not_started、pending、claimed、retryable、paused、succeeded、failed、disabled 或 unavailable。 |
+| `total_nodes` | `number` | 是 | 文档结构树节点总数。 |
+| `summarized_nodes` | `number` | 是 | 已经完成摘要的节点数。 |
+| `reason_code` | `string` | 否 | 状态原因码；没有原因时为空字符串。 |
+| `reusable` | `boolean` | 是 | 摘要结果是否可供后续多个 Agent 或消息复用。 |
+| `attempt_count` | `number` | 是 | 摘要任务尝试次数。 |
+| `updated_at` | `string` | 是 | 状态最后更新时间，使用 ISO 8601 时间格式。 |
+
+### 调用示例
+
+```bash
+curl -X POST "$BASE_URL/openapi/v1/services/svc_xxx/attachments/att_xxx/summary?user_id=user_001" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+### 调用规则与限制
+
+- 接口只返回状态和节点计数，不返回摘要正文、Prompt、模型推理、对象存储路径或解析器实现细节。
+- 摘要任务属于附件解析产物，不绑定某一条消息；同一 artifact_id 被多个 Agent 或多条消息使用时共享任务和 checkpoint。
+- status=succeeded 后，调用方可以把 attachment_id 放入 /openapi/v1/services/{service_id}/invoke 的 attachments；摘要失败、关闭或不可用时，invoke 仍可沿既有附件原文兜底路线执行。
+- POST 启动接口幂等；paused 状态需要再次显式 POST 才会继续，GET 只查询，不会隐式启动或恢复任务。
+- 摘要尚未完成时不要提前按摘要结果回答；调用方应根据 total_nodes 与 summarized_nodes 展示进度，并在终态停止轮询。
+- 服务端会再次校验服务授权、附件归属、解析状态、对象存储和安全状态；客户端不能指定任意 artifact 版本。
+- 结构树尚未准备好时返回 pending 和 TREE_STRUCTURE_NOT_READY，表示等待确定性结构树完成，不表示摘要模型失败。
+
+## GET /openapi/v1/services/{service_id}/attachments/{attachment_id}/summary
+
+**查询服务附件摘要状态** · 已可用
+
+**接口状态**：已可用
+
+**接入提示**：当前接口可作为正式接入入口。调用前仍需确认服务已发布、调用方已获得授权，并在客户端处理流式终态与异常响应。
+
+**用途**：查询服务附件摘要的状态、原因和节点进度，不会启动或恢复摘要任务。
+
+**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+
+**适用场景**：启动摘要后轮询，或在断线、页面刷新和多个 Agent 复用时恢复摘要进度。
+
+### 调用前确认
+
+1. **确认摘要凭证**：使用 invoke 类型 access_token 或兼容的 API Key，并确保调用方拥有目标 service_id 的权限。
+2. **确认附件归属**：attachment_id 必须属于目标 service_id，user_id 必须与上传服务附件时使用的主体标识一致。
+3. **只查询不启动**：GET 只读取状态，不会隐式创建或恢复摘要任务；根据 status 判断是否继续等待。
+
+### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `service_id` | `path string` | 是 | 附件所属的已发布服务标识。 |
+| `attachment_id` | `path string` | 是 | 服务附件上传接口返回的附件 ID。 |
+| `user_id` | `query string` | 是 | 上传附件时使用的外部主体隔离键。 |
+| `release_id` | `query string` | 否 | 可选；固定校验指定的已发布服务版本。 |
+
+### 响应字段 / 事件字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `attachment_id` | `string` | 是 | 附件引用 ID。 |
+| `artifact_id` | `string` | 是 | 当前解析产物 ID；同一产物共享摘要任务。 |
+| `summary_task_id` | `string \| null` | 否 | 摘要任务 ID；尚未创建任务时可能为空。 |
+| `summary_enabled` | `boolean` | 是 | 当前附件解析快照是否开启摘要。 |
+| `status` | `string` | 是 | 摘要状态：not_started、pending、claimed、retryable、paused、succeeded、failed、disabled 或 unavailable。 |
+| `total_nodes` | `number` | 是 | 文档结构树节点总数。 |
+| `summarized_nodes` | `number` | 是 | 已经完成摘要的节点数。 |
+| `reason_code` | `string` | 否 | 状态原因码；没有原因时为空字符串。 |
+| `reusable` | `boolean` | 是 | 摘要结果是否可供后续多个 Agent 或消息复用。 |
+| `attempt_count` | `number` | 是 | 摘要任务尝试次数。 |
+| `updated_at` | `string` | 是 | 状态最后更新时间，使用 ISO 8601 时间格式。 |
+
+### 调用示例
+
+```bash
+curl "$BASE_URL/openapi/v1/services/svc_xxx/attachments/att_xxx/summary?user_id=user_001" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+### 调用规则与限制
+
+- 接口只返回状态和节点计数，不返回摘要正文、Prompt、模型推理、对象存储路径或解析器实现细节。
+- 摘要任务属于附件解析产物，不绑定某一条消息；同一 artifact_id 被多个 Agent 或多条消息使用时共享任务和 checkpoint。
+- status=succeeded 后，调用方可以把 attachment_id 放入 /openapi/v1/services/{service_id}/invoke 的 attachments；摘要失败、关闭或不可用时，invoke 仍可沿既有附件原文兜底路线执行。
+- POST 启动接口幂等；paused 状态需要再次显式 POST 才会继续，GET 只查询，不会隐式启动或恢复任务。
+- 摘要尚未完成时不要提前按摘要结果回答；调用方应根据 total_nodes 与 summarized_nodes 展示进度，并在终态停止轮询。
+
+## POST /openapi/v1/services/{service_id}/attachments/{attachment_id}/summary/cancel
+
+**暂停服务附件摘要** · 已可用
+
+**接口状态**：已可用
+
+**接入提示**：当前接口可作为正式接入入口。调用前仍需确认服务已发布、调用方已获得授权，并在客户端处理流式终态与异常响应。
+
+**用途**：暂停服务附件的摘要任务并保留已完成节点，后续可以通过启动接口继续。
+
+**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+
+**适用场景**：用户中断当前摘要、暂时不需要继续消耗模型调用，或需要释放当前摘要执行时调用。
+
+### 调用前确认
+
+1. **确认摘要凭证**：使用 invoke 类型 access_token 或兼容的 API Key，并确保调用方拥有目标 service_id 的权限。
+2. **确认附件归属**：attachment_id 必须属于目标 service_id，user_id 必须与上传服务附件时使用的主体标识一致。
+3. **暂停并保留进度**：取消只暂停非终态任务并保留 checkpoint；后续需要再次调用 POST 启动接口才会继续。
+
+### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `service_id` | `path string` | 是 | 附件所属的已发布服务标识。 |
+| `attachment_id` | `path string` | 是 | 服务附件上传接口返回的附件 ID。 |
+| `user_id` | `query string` | 是 | 上传附件时使用的外部主体隔离键。 |
+| `release_id` | `query string` | 否 | 可选；固定校验指定的已发布服务版本。 |
+
+### 响应字段 / 事件字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `attachment_id` | `string` | 是 | 附件引用 ID。 |
+| `artifact_id` | `string` | 是 | 当前解析产物 ID；同一产物共享摘要任务。 |
+| `summary_task_id` | `string \| null` | 否 | 摘要任务 ID；尚未创建任务时可能为空。 |
+| `summary_enabled` | `boolean` | 是 | 当前附件解析快照是否开启摘要。 |
+| `status` | `string` | 是 | 摘要状态：not_started、pending、claimed、retryable、paused、succeeded、failed、disabled 或 unavailable。 |
+| `total_nodes` | `number` | 是 | 文档结构树节点总数。 |
+| `summarized_nodes` | `number` | 是 | 已经完成摘要的节点数。 |
+| `reason_code` | `string` | 否 | 状态原因码；没有原因时为空字符串。 |
+| `reusable` | `boolean` | 是 | 摘要结果是否可供后续多个 Agent 或消息复用。 |
+| `attempt_count` | `number` | 是 | 摘要任务尝试次数。 |
+| `updated_at` | `string` | 是 | 状态最后更新时间，使用 ISO 8601 时间格式。 |
+
+### 调用示例
+
+```bash
+curl -X POST "$BASE_URL/openapi/v1/services/svc_xxx/attachments/att_xxx/summary/cancel?user_id=user_001" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+### 调用规则与限制
+
+- 接口只返回状态和节点计数，不返回摘要正文、Prompt、模型推理、对象存储路径或解析器实现细节。
+- 摘要任务属于附件解析产物，不绑定某一条消息；同一 artifact_id 被多个 Agent 或多条消息使用时共享任务和 checkpoint。
+- status=succeeded 后，调用方可以把 attachment_id 放入 /openapi/v1/services/{service_id}/invoke 的 attachments；摘要失败、关闭或不可用时，invoke 仍可沿既有附件原文兜底路线执行。
+- POST 启动接口幂等；paused 状态需要再次显式 POST 才会继续，GET 只查询，不会隐式启动或恢复任务。
+- 摘要尚未完成时不要提前按摘要结果回答；调用方应根据 total_nodes 与 summarized_nodes 展示进度，并在终态停止轮询。
+- 取消接口只暂停非终态任务并保留 checkpoint；succeeded、failed、disabled 和 unavailable 不会被改写。
+- 已送达模型供应商的请求不保证能够在供应商侧撤回，但服务端会推进任务 fencing，避免旧任务继续写回。
+
 ## GET /openapi/v1/attachments/parser-services/{parser_service_id}/attachment-capabilities
 
 **查询平台解析器能力** · 已可用
@@ -606,7 +949,7 @@ curl "$BASE_URL/openapi/v1/services/svc_xxx/attachments/att_xxx?user_id=user_001
 
 **用途**：查询指定平台解析器支持的文件格式和当前执行可用性。
 
-**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+**鉴权方式**：`Authorization: Bearer {attachment_access_token}（使用 attachment 类型凭证换取）`
 
 **适用场景**：上传可复用附件前，确认选择的解析器支持文件格式且服务可执行。
 
@@ -655,7 +998,7 @@ curl "$BASE_URL/openapi/v1/attachments/parser-services/parser_xxx/attachment-cap
 
 **用途**：指定一个平台解析器解析文件，生成可供多个已绑定该解析器的 Agent 复用的 attachment_id。
 
-**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+**鉴权方式**：`Authorization: Bearer {attachment_access_token}（使用 attachment 类型凭证换取）`
 
 **适用场景**：希望一次解析后被多个 Agent 使用时调用。
 
@@ -673,16 +1016,19 @@ curl "$BASE_URL/openapi/v1/attachments/parser-services/parser_xxx/attachment-cap
 | `parser_service_id` | `multipart string` | 是 | 指定使用的平台解析器服务标识。 |
 | `user_id` | `multipart string` | 是 | 外部主体隔离键；多个 Agent 需要复用时保持一致。 |
 | `client_upload_key` | `multipart string` | 否 | 可选幂等键，重试时保持不变。 |
-| `file` | `multipart file` | 是 | 待解析文件，格式必须符合解析器能力。 |
+| `files` | `multipart file[]` | 是 | 重复传入的待解析文件，格式必须符合解析器能力；兼容旧的单个 file 字段。 |
 
 ### 响应字段 / 事件字段
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `attachment_id` | `string` | 是 | 后续传入 Agent invoke 的附件引用 ID。 |
-| `parser_service_id` | `string` | 否 | 实际使用的平台解析器。 |
-| `parser_revision_id` | `string` | 否 | 实际使用的解析器版本。 |
-| `parse_status` | `string` | 否 | 初始通常为 pending，完成后为 ready 或 failed。 |
+| `data[]` | `object[]` | 是 | 按上传顺序返回每个文件的处理结果。 |
+| `data[].status` | `"succeeded" \| "failed"` | 否 | 单文件处理状态。 |
+| `data[].attachment_id` | `string` | 否 | 成功项后续传入 Agent invoke 的附件引用 ID。 |
+| `data[].parser_service_id` | `string` | 否 | 成功项实际使用的平台解析器。 |
+| `data[].parser_revision_id` | `string` | 否 | 成功项实际使用的解析器版本。 |
+| `data[].parse_status` | `string` | 否 | 成功项初始通常为 pending，完成后为 ready 或 failed。 |
+| `data[].error` | `object \| null` | 否 | 失败项的低敏错误码和文案。 |
 
 ### 调用示例
 
@@ -692,13 +1038,16 @@ curl -X POST "$BASE_URL/openapi/v1/attachments/reusable-attachments" \
   -F "parser_service_id=parser_xxx" \
   -F "user_id=external_user_001" \
   -F "client_upload_key=file-001" \
-  -F "file=@./example.pdf"
+  -F "client_upload_key=file-001" \
+  -F "files=@./example.pdf" \
+  -F "files=@./appendix.docx"
 ```
 
 ### 调用规则与限制
 
 - attachment 凭证不绑定 Agent；平台只负责解析和生成可复用附件。
-- 上传成功不代表解析完成，需轮询状态接口。
+- 上传成功不代表解析完成，需对每个成功项轮询状态接口；单个文件失败不会影响同批其他文件。
+- 批量上传使用重复的 files 字段；client_upload_key 可重复传入多个值，按文件顺序匹配。
 - 目标 Agent 后续仍需具备该解析器绑定，才能在 Agent 调用中使用此 attachment_id。
 
 ## GET /openapi/v1/attachments/reusable-attachments/{attachment_id}
@@ -711,7 +1060,7 @@ curl -X POST "$BASE_URL/openapi/v1/attachments/reusable-attachments" \
 
 **用途**：查询平台解析器生成的可复用附件状态。
 
-**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+**鉴权方式**：`Authorization: Bearer {attachment_access_token}（使用 attachment 类型凭证换取）`
 
 **适用场景**：上传后轮询，直到 parse_status 为 ready 或 failed。
 
@@ -750,6 +1099,183 @@ curl "$BASE_URL/openapi/v1/attachments/reusable-attachments/att_xxx?user_id=exte
 - 状态接口只返回元数据和统计信息，不返回全文。
 - ready 后把 attachment_id 放入 Agent invoke 的 attachments 数组；目标 Agent 仍会校验解析器绑定。
 
+## POST /openapi/v1/reusable-attachments/{attachment_id}/summary
+
+**启动可复用附件摘要** · 已可用
+
+**接口状态**：已可用
+
+**接入提示**：当前接口可作为正式接入入口。调用前仍需确认服务已发布、调用方已获得授权，并在客户端处理流式终态与异常响应。
+
+**用途**：显式启动或继续可复用附件的共享文档树摘要任务，供多个 Agent 或消息复用。
+
+**鉴权方式**：`Authorization: Bearer {attachment_access_token}（使用 attachment 类型凭证换取）`
+
+**适用场景**：希望在调用 Agent 前主动准备一次共享摘要，或继续一个已暂停的摘要任务时调用。
+
+### 调用前确认
+
+1. **确认摘要凭证**：使用 attachment 类型 access_token，并确保凭证包含附件解析相关权限。
+2. **确认附件归属**：attachment_id 必须属于当前外部主体，user_id 必须与上传可复用附件时完全一致。
+3. **显式启动并轮询**：POST 启动接口幂等；结构树未准备好时先等待并重试，status=succeeded 后再调用 Agent。
+
+### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `attachment_id` | `path string` | 是 | 可复用附件上传接口返回的附件 ID。 |
+| `user_id` | `query string` | 是 | 上传可复用附件时使用的外部主体隔离键。 |
+
+### 响应字段 / 事件字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `attachment_id` | `string` | 是 | 附件引用 ID。 |
+| `artifact_id` | `string` | 是 | 当前解析产物 ID；同一产物共享摘要任务。 |
+| `summary_task_id` | `string \| null` | 否 | 摘要任务 ID；尚未创建任务时可能为空。 |
+| `summary_enabled` | `boolean` | 是 | 当前附件解析快照是否开启摘要。 |
+| `status` | `string` | 是 | 摘要状态：not_started、pending、claimed、retryable、paused、succeeded、failed、disabled 或 unavailable。 |
+| `total_nodes` | `number` | 是 | 文档结构树节点总数。 |
+| `summarized_nodes` | `number` | 是 | 已经完成摘要的节点数。 |
+| `reason_code` | `string` | 否 | 状态原因码；没有原因时为空字符串。 |
+| `reusable` | `boolean` | 是 | 摘要结果是否可供后续多个 Agent 或消息复用。 |
+| `attempt_count` | `number` | 是 | 摘要任务尝试次数。 |
+| `updated_at` | `string` | 是 | 状态最后更新时间，使用 ISO 8601 时间格式。 |
+
+### 调用示例
+
+```bash
+curl -X POST "$BASE_URL/openapi/v1/reusable-attachments/att_xxx/summary?user_id=external_user_001" \
+  -H "Authorization: Bearer {attachment_access_token}"
+```
+
+### 调用规则与限制
+
+- 接口只返回状态和节点计数，不返回摘要正文、Prompt、模型推理、对象存储路径或解析器实现细节。
+- 摘要任务属于附件解析产物，不绑定某一条消息；同一 artifact_id 被多个 Agent 或多条消息使用时共享任务和 checkpoint。
+- status=succeeded 后，调用方可以把 attachment_id 放入 /openapi/v1/services/{service_id}/invoke 的 attachments；摘要失败、关闭或不可用时，invoke 仍可沿既有附件原文兜底路线执行。
+- POST 启动接口幂等；paused 状态需要再次显式 POST 才会继续，GET 只查询，不会隐式启动或恢复任务。
+- 摘要尚未完成时不要提前按摘要结果回答；调用方应根据 total_nodes 与 summarized_nodes 展示进度，并在终态停止轮询。
+- 该接口只要求 attachment API Key 和上传时相同的 user_id，不绑定 Agent 或 service_id。
+
+## GET /openapi/v1/reusable-attachments/{attachment_id}/summary
+
+**查询可复用附件摘要状态** · 已可用
+
+**接口状态**：已可用
+
+**接入提示**：当前接口可作为正式接入入口。调用前仍需确认服务已发布、调用方已获得授权，并在客户端处理流式终态与异常响应。
+
+**用途**：查询可复用附件共享摘要的状态、原因和节点进度，不会启动或恢复摘要任务。
+
+**鉴权方式**：`Authorization: Bearer {attachment_access_token}（使用 attachment 类型凭证换取）`
+
+**适用场景**：启动摘要后轮询，或在断线、页面刷新和多个 Agent 复用时恢复共享摘要进度。
+
+### 调用前确认
+
+1. **确认摘要凭证**：使用 attachment 类型 access_token，并确保凭证包含附件解析相关权限。
+2. **确认附件归属**：attachment_id 必须属于当前外部主体，user_id 必须与上传可复用附件时完全一致。
+3. **只查询不启动**：GET 只读取状态，不会隐式创建或恢复摘要任务；根据 status 判断是否继续等待。
+
+### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `attachment_id` | `path string` | 是 | 可复用附件上传接口返回的附件 ID。 |
+| `user_id` | `query string` | 是 | 上传可复用附件时使用的外部主体隔离键。 |
+
+### 响应字段 / 事件字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `attachment_id` | `string` | 是 | 附件引用 ID。 |
+| `artifact_id` | `string` | 是 | 当前解析产物 ID；同一产物共享摘要任务。 |
+| `summary_task_id` | `string \| null` | 否 | 摘要任务 ID；尚未创建任务时可能为空。 |
+| `summary_enabled` | `boolean` | 是 | 当前附件解析快照是否开启摘要。 |
+| `status` | `string` | 是 | 摘要状态：not_started、pending、claimed、retryable、paused、succeeded、failed、disabled 或 unavailable。 |
+| `total_nodes` | `number` | 是 | 文档结构树节点总数。 |
+| `summarized_nodes` | `number` | 是 | 已经完成摘要的节点数。 |
+| `reason_code` | `string` | 否 | 状态原因码；没有原因时为空字符串。 |
+| `reusable` | `boolean` | 是 | 摘要结果是否可供后续多个 Agent 或消息复用。 |
+| `attempt_count` | `number` | 是 | 摘要任务尝试次数。 |
+| `updated_at` | `string` | 是 | 状态最后更新时间，使用 ISO 8601 时间格式。 |
+
+### 调用示例
+
+```bash
+curl "$BASE_URL/openapi/v1/reusable-attachments/att_xxx/summary?user_id=external_user_001" \
+  -H "Authorization: Bearer {attachment_access_token}"
+```
+
+### 调用规则与限制
+
+- 接口只返回状态和节点计数，不返回摘要正文、Prompt、模型推理、对象存储路径或解析器实现细节。
+- 摘要任务属于附件解析产物，不绑定某一条消息；同一 artifact_id 被多个 Agent 或多条消息使用时共享任务和 checkpoint。
+- status=succeeded 后，调用方可以把 attachment_id 放入 /openapi/v1/services/{service_id}/invoke 的 attachments；摘要失败、关闭或不可用时，invoke 仍可沿既有附件原文兜底路线执行。
+- POST 启动接口幂等；paused 状态需要再次显式 POST 才会继续，GET 只查询，不会隐式启动或恢复任务。
+- 摘要尚未完成时不要提前按摘要结果回答；调用方应根据 total_nodes 与 summarized_nodes 展示进度，并在终态停止轮询。
+- 状态查询必须使用上传时相同的 user_id；不返回摘要正文或解析器实现细节。
+
+## POST /openapi/v1/reusable-attachments/{attachment_id}/summary/cancel
+
+**暂停可复用附件摘要** · 已可用
+
+**接口状态**：已可用
+
+**接入提示**：当前接口可作为正式接入入口。调用前仍需确认服务已发布、调用方已获得授权，并在客户端处理流式终态与异常响应。
+
+**用途**：暂停可复用附件的共享摘要任务并保留已完成节点，后续可以通过启动接口继续。
+
+**鉴权方式**：`Authorization: Bearer {attachment_access_token}（使用 attachment 类型凭证换取）`
+
+**适用场景**：暂时不需要继续消耗模型调用，或用户中断当前共享摘要时调用。
+
+### 调用前确认
+
+1. **确认摘要凭证**：使用 attachment 类型 access_token，并确保凭证包含附件解析相关权限。
+2. **确认附件归属**：attachment_id 必须属于当前外部主体，user_id 必须与上传可复用附件时完全一致。
+3. **暂停并保留进度**：取消只暂停非终态任务并保留 checkpoint；后续需要再次调用 POST 启动接口才会继续。
+
+### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `attachment_id` | `path string` | 是 | 可复用附件上传接口返回的附件 ID。 |
+| `user_id` | `query string` | 是 | 上传可复用附件时使用的外部主体隔离键。 |
+
+### 响应字段 / 事件字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `attachment_id` | `string` | 是 | 附件引用 ID。 |
+| `artifact_id` | `string` | 是 | 当前解析产物 ID；同一产物共享摘要任务。 |
+| `summary_task_id` | `string \| null` | 否 | 摘要任务 ID；尚未创建任务时可能为空。 |
+| `summary_enabled` | `boolean` | 是 | 当前附件解析快照是否开启摘要。 |
+| `status` | `string` | 是 | 摘要状态：not_started、pending、claimed、retryable、paused、succeeded、failed、disabled 或 unavailable。 |
+| `total_nodes` | `number` | 是 | 文档结构树节点总数。 |
+| `summarized_nodes` | `number` | 是 | 已经完成摘要的节点数。 |
+| `reason_code` | `string` | 否 | 状态原因码；没有原因时为空字符串。 |
+| `reusable` | `boolean` | 是 | 摘要结果是否可供后续多个 Agent 或消息复用。 |
+| `attempt_count` | `number` | 是 | 摘要任务尝试次数。 |
+| `updated_at` | `string` | 是 | 状态最后更新时间，使用 ISO 8601 时间格式。 |
+
+### 调用示例
+
+```bash
+curl -X POST "$BASE_URL/openapi/v1/reusable-attachments/att_xxx/summary/cancel?user_id=external_user_001" \
+  -H "Authorization: Bearer {attachment_access_token}"
+```
+
+### 调用规则与限制
+
+- 接口只返回状态和节点计数，不返回摘要正文、Prompt、模型推理、对象存储路径或解析器实现细节。
+- 摘要任务属于附件解析产物，不绑定某一条消息；同一 artifact_id 被多个 Agent 或多条消息使用时共享任务和 checkpoint。
+- status=succeeded 后，调用方可以把 attachment_id 放入 /openapi/v1/services/{service_id}/invoke 的 attachments；摘要失败、关闭或不可用时，invoke 仍可沿既有附件原文兜底路线执行。
+- POST 启动接口幂等；paused 状态需要再次显式 POST 才会继续，GET 只查询，不会隐式启动或恢复任务。
+- 摘要尚未完成时不要提前按摘要结果回答；调用方应根据 total_nodes 与 summarized_nodes 展示进度，并在终态停止轮询。
+- 取消接口只暂停非终态任务并保留 checkpoint；后续必须显式调用启动接口才会继续。
+
 ## POST /openapi/v1/attachments/reusable-attachments/{attachment_id}/control
 
 **控制可复用附件解析** · 已可用
@@ -760,7 +1286,7 @@ curl "$BASE_URL/openapi/v1/attachments/reusable-attachments/att_xxx?user_id=exte
 
 **用途**：使用同一个接口暂停、继续或取消指定可复用附件的解析任务。
 
-**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+**鉴权方式**：`Authorization: Bearer {attachment_access_token}（使用 attachment 类型凭证换取）`
 
 **适用场景**：上传后需要主动暂停排队任务、恢复暂停任务，或取消不再需要的解析时调用。
 
@@ -1217,20 +1743,268 @@ curl -X POST "$BASE_URL/openapi/v1/runs/run_xxx/interrupts/int_xxx/resolve" \
 - 旧 tool-calls confirm 接口已废弃，不应作为新 SDK 入口。
 - user_id 是外部调用的主体隔离键，不是工作空间内部登录用户。
 
+## GET /openapi/v1/services/{service_id}/artifacts/{artifact_id}
+
+**查询生成文件产物** · 已可用
+
+**接口状态**：已可用
+
+**接入提示**：当前接口可作为正式接入入口。调用前仍需确认服务已发布、调用方已获得授权，并在客户端处理流式终态与异常响应。
+
+**用途**：查询 Agent 生成文件的元数据和生成状态，不返回文件正文或内部存储路径。
+
+**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+
+**适用场景**：收到聊天或运行事件中的 artifact_id 后，查询文件是否已经 ready。
+
+### 调用前确认
+
+1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
+2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
+3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
+4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+
+### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `service_id` | `path string` | 是 | 已发布服务标识。 |
+| `artifact_id` | `path string` | 是 | 生成文件产物标识。 |
+
+### 响应字段 / 事件字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `artifact_id` | `string` | 是 | 文件产物标识。 |
+| `filename` | `string` | 是 | 归一化后的文件名。 |
+| `status` | `generating \| ready \| failed \| expired` | 是 | 产物状态。 |
+| `size_bytes` | `number` | 否 | 文件大小。 |
+| `created_at` | `string` | 否 | 创建时间。 |
+| `ready_at` | `string \| null` | 否 | 就绪时间。 |
+
+### 调用示例
+
+```bash
+curl "$BASE_URL/openapi/v1/services/svc_xxx/artifacts/art_xxx" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+### 调用规则与限制
+
+- 文件生成仍由 Agent ToolLoop 发起，接口只查询已经产生的产物。
+- 产物必须属于当前 service 和当前 API Key 主体；未就绪、失败和过期不会被伪装成成功。
+
+## GET /openapi/v1/services/{service_id}/artifacts/{artifact_id}/content
+
+**下载生成文件** · 已可用
+
+**接口状态**：已可用
+
+**接入提示**：当前接口可作为正式接入入口。调用前仍需确认服务已发布、调用方已获得授权，并在客户端处理流式终态与异常响应。
+
+**用途**：下载已生成完成的文件本体。
+
+**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+
+**适用场景**：产物状态为 ready 后下载文件；也可以使用短时 URL 交给浏览器或下游系统。
+
+### 调用前确认
+
+1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
+2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
+3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
+4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+
+### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `service_id` | `path string` | 是 | 已发布服务标识。 |
+| `artifact_id` | `path string` | 是 | 生成文件产物标识。 |
+| `download_token` | `query string` | 否 | 由 /url 接口签发的短时下载令牌，可替代 API Key。 |
+
+### 响应字段 / 事件字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `body` | `binary` | 是 | 文件二进制内容，Content-Type 和文件名来自产物元数据。 |
+
+### 调用示例
+
+```bash
+curl "$BASE_URL/openapi/v1/services/svc_xxx/artifacts/art_xxx/content" \
+  -H "Authorization: Bearer {access_token}" \
+  -o report.docx
+```
+
+### 调用规则与限制
+
+- 只有 ready 状态可以下载；expired、failed、generating 分别返回对应错误码。
+- 响应不暴露 storage_key、宿主机路径或永久公开地址。
+
+## GET /openapi/v1/services/{service_id}/artifacts/{artifact_id}/url
+
+**获取生成文件短时下载地址** · 已可用
+
+**接口状态**：已可用
+
+**接入提示**：当前接口可作为正式接入入口。调用前仍需确认服务已发布、调用方已获得授权，并在客户端处理流式终态与异常响应。
+
+**用途**：签发绑定当前服务和产物的短时下载地址。
+
+**鉴权方式**：`Authorization: Bearer {access_token}（先通过 /openapi/v1/auth/token 换取）`
+
+**适用场景**：需要把文件交给浏览器、消息卡片或下游系统下载时使用。
+
+### 调用前确认
+
+1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
+2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
+3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
+4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+
+### 请求参数
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `service_id` | `path string` | 是 | 已发布服务标识。 |
+| `artifact_id` | `path string` | 是 | 生成文件产物标识。 |
+
+### 响应字段 / 事件字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `download_url` | `string` | 是 | 默认 5 分钟有效的下载地址。 |
+| `expires_in` | `number` | 是 | 剩余有效秒数。 |
+| `expires_at` | `string` | 是 | 过期时间。 |
+
+### 调用示例
+
+```bash
+curl "$BASE_URL/openapi/v1/services/svc_xxx/artifacts/art_xxx/url" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+### 调用规则与限制
+
+- 短时地址只绑定当前 service_id 和 artifact_id，不能跨服务复用。
+- 文件过期或产物无权访问时不会签发地址。
+
 ## SSE 事件速览
 
 | 事件 | 类型 | 说明 |
 | --- | --- | --- |
 | `connected` | `event` | SSE 建连成功，包含 run_id。 |
-| `status.update` | `event` | 运行状态卡片更新，例如生成计划、等待模型、工具执行。 |
+| `status.update` | `event` | 统一状态事件。payload 含 title、summary、tone、status、source_event_type；运行、治理、护栏、委派和子编排状态都由此承载，status 值见下方状态表。 |
 | `reasoning.delta` | `event` | 深度思考增量；模型开启深度思考时才出现。 |
 | `text.delta` | `event` | 正文增量，客户端应按顺序追加展示。 |
+| `tool.call.started` | `event` | 工具或能力开始执行；携带工具标识、名称和参数。 |
+| `tool.call.allowed` | `event` | 工具调用已通过权限、护栏和运行时准入。 |
+| `tool.call.blocked` | `event` | 工具调用被权限、护栏或治理策略阻断。 |
+| `tool.result` | `event` | 工具或能力执行结果；由 tool.call.completed / tool.call.failed 适配而来，status 区分完成、失败或用户拒绝。 |
 | `tool.waiting` | `event` | 工具或技能等待确认，需要调用 resolve。 |
 | `interrupt.waiting` | `event` | 运行进入等待中断态，需要调用 resolve。 |
-| `interrupt.resolved` | `event` | 中断已处理并完成恢复。 |
-| `run.resumed` | `event` | Run 从中断恢复后继续执行。 |
+| `interrupt.resolved` | `event` | 等待事项已处理；后续是否恢复以恢复事件和状态为准。 |
+| `run.resumed` | `status.update.source_event_type` | Run 从等待状态恢复；对外折叠到 status.update。 |
+| `artifact.ready` | `event` | Agent 生成的文件产物已就绪，可通过产物下载接口获取。 |
+| `card_summary.source` | `event` | 运行卡片摘要来源已登记或摘要任务待处理。 |
+| `card_summary.updated` | `event` | 运行卡片摘要已更新。 |
+| `page_generation.skill.started / page_generation.skill.completed` | `structured event` | 页面生成技能开始或完成；以结构化 payload 交付页面产物。 |
+| `page_output.skeleton / page_output.node.completed` | `structured event` | 页面骨架建立或页面节点生成完成。 |
+| `sandbox.*` | `structured event` | 沙箱类结构化事件；具体事件名由产物协议定义，客户端应容忍未知事件。 |
+| `pipeline.started` | `status.update.source_event_type` | 子编排开始；状态通过 status.update 推送，不是独立 SSE event。 |
+| `pipeline.resumed` | `status.update.source_event_type` | 等待处理后子编排恢复；状态通过 status.update 推送。 |
+| `pipeline.step.started` | `status.update.source_event_type` | 子编排步骤开始；状态通过 status.update 推送。 |
+| `pipeline.step.resumed` | `status.update.source_event_type` | 子编排步骤恢复；状态通过 status.update 推送。 |
+| `pipeline.step.completed` | `status.update.source_event_type` | 子编排步骤完成；状态通过 status.update 推送。 |
+| `pipeline.step.failed` | `status.update.source_event_type` | 子编排步骤失败；状态通过 status.update 推送。 |
+| `pipeline.completed` | `status.update.source_event_type` | 子编排完成，不代表父 Run 已完成；状态通过 status.update 推送。 |
+| `pipeline.failed` | `status.update.source_event_type` | 子编排失败；父 Run 可能继续、降级或结束，状态通过 status.update 推送。 |
+| `pipeline.step.aborted` | `event` | 子编排步骤被取消或中止。 |
+| `pipeline.step.http.completed` | `event` | 子编排中的 HTTP 调用成功。 |
+| `pipeline.step.http.failed` | `event` | 子编排中的 HTTP 调用失败。 |
+| `tool.transport.updated` | `status.update.source_event_type` | 原生工具调用切换或回退状态；状态通过 status.update 推送。 |
+| `model.recovery` | `status.update.source_event_type` | 模型调用恢复或降级状态；状态通过 status.update 推送。 |
+| `control_decision.degraded` | `status.update.source_event_type` | 意图识别或任务规划使用规则降级；状态通过 status.update 推送。 |
+| `run.status_changed` | `status.update.source_event_type` | Run 或编排状态变化；状态通过 status.update 推送。 |
+| `run.completed / run.failed / run.timeout` | `status.update.source_event_type` | Run 成功、失败或超时终态；通过 status.update 推送。 |
+| `run.governance_waiting` | `status.update.source_event_type` | Run 因治理或等待条件暂停；客户端等待用户、人工或外部动作。 |
+| `run.governance_retry_scheduled / run.governance_retry_ready / run.governance_retry_exhausted` | `status.update.source_event_type` | 治理重试已安排、就绪或耗尽；状态通过 status.update 推送。 |
+| `run.governance_reflect_started / run.governance_reflect_exhausted` | `status.update.source_event_type` | 自动调整策略开始或次数耗尽；状态通过 status.update 推送。 |
+| `run.governance_escalated` | `status.update.source_event_type` | 自动处理升级为人工确认；状态通过 status.update 推送。 |
+| `run.transition_rejected / run.late_result_discarded / run.failure_archived` | `status.update.source_event_type` | 状态迁移拒绝、迟到结果丢弃或失败归档等运行治理事实；状态通过 status.update 推送。 |
+| `guardrail.decision` | `event / status.update.source_event_type` | 护栏决策事件；可映射为状态卡，审批类裁决可能保留为原事件。 |
+| `intent.created / intent.recognized / intent.low_confidence` | `status.update.source_event_type` | 用户目标创建、意图识别或低置信度处理状态。 |
+| `plan.generating / plan.created / plan_step.created / plan_step.mapped` | `status.update.source_event_type` | 计划生成、计划建立和步骤拆解或映射状态。 |
+| `reasoning.summary.completed / run.card_summary_source_registered` | `card_summary.source.source_event_type` | 面向用户的思考摘要来源已登记；摘要通过 card_summary.source 推送。 |
+| `card_summary.projection.updated / run.card_summary_updated` | `card_summary.source / card_summary.updated.source_event_type` | 运行卡片摘要投影或最终摘要更新；分别通过 card_summary.source 或 card_summary.updated 推送。 |
+| `divergence.detected / divergence.replanned` | `status.update.source_event_type` | 检测到执行偏离或完成计划调整。 |
+| `intent_family.classified / intent_family.fallback / intent_family.schema_loaded` | `status.update.source_event_type` | 意图族分类、降级或规则加载状态。 |
+| `slot.filled / slot.missing` | `status.update.source_event_type` | 执行所需信息已补齐或仍有缺失。 |
+| `clarification.requested / clarification.fulfilled / clarification.exhausted / clarification.late_input_discarded` | `status.update.source_event_type` | 澄清请求、信息补齐、轮次耗尽或迟到输入处理状态。 |
+| `plan_template.recommended / plan_template.adoption_recorded` | `status.update.source_event_type` | 计划模板推荐或采纳记录状态。 |
+| `run.empty_final_output` | `event` | 运行未生成可展示的最终正文；通常还会收到 message.error 或失败状态。 |
+| `pipeline.step.output.delta` | `event` | 子编排步骤输出增量；客户端按顺序拼接 payload.delta 或 payload.content。 |
+| `pipeline.step.output.completed` | `event` | 子编排步骤输出已完整收口，可结束该步骤的增量展示。 |
+| `collaboration.plan.frozen` | `status.update.source_event_type` | 委派计划已冻结；状态通过 status.update 推送。 |
+| `collaboration.arrangement.updated` | `status.update.source_event_type` | 委派安排或结果投影更新；状态通过 status.update 推送。 |
+| `collaboration.worker.started` | `status.update.source_event_type` | 委派智能体开始执行；状态通过 status.update 推送。 |
+| `collaboration.worker.progress` | `status.update.source_event_type` | 委派智能体进度或等待状态更新；状态通过 status.update 推送。 |
+| `collaboration.worker.completed` | `status.update.source_event_type` | 委派智能体结束；状态通过 status.update 推送，不代表父 Run 完成。 |
+| `collaboration.batch.stopped` | `status.update.source_event_type` | 未完成的委派批次已停止；状态通过 status.update 推送。 |
+| `collaboration.merge.completed` | `status.update.source_event_type` | 委派结果已汇总；父 Run 仍可能继续执行。 |
 | `followup_suggestions` | `event` | 后置追问建议，通常在正文完成后出现。 |
-| `message.completed` | `event` | 正常完成终态。 |
-| `message.error` | `event` | 失败终态，包含错误码和错误描述。 |
+| `message.completed` | `event` | 助手消息已完成，包含 message_id 和 citations；它表示消息交付完成。 |
+| `message.error` | `event` | 流式处理失败，包含错误码和可展示说明。 |
 | `run.cancelled` | `event` | 取消终态，不再恢复。 |
+
+## status.update 状态值
+
+| 状态值 | 类型 | 说明 |
+| --- | --- | --- |
+| `running` | `payload.status` | 正在执行；也用于委派 Worker 和子编排步骤进行中。 |
+| `completed` | `payload.status` | 对应消息、步骤或委派结果已完成，不单独代表父 Run 完成。 |
+| `failed` | `payload.status` | 对应运行、步骤、委派任务或护栏处理失败。 |
+| `cancelled` | `payload.status` | 运行或委派任务已取消。 |
+| `timeout` | `payload.status` | 运行或委派任务已超时。 |
+| `waiting_model` | `payload.status` | 等待模型响应。 |
+| `waiting_tool_result` | `payload.status` | 等待工具返回结果。 |
+| `waiting_user_input` | `payload.status` | 暂停并等待用户补充信息。 |
+| `waiting_human` | `payload.status` | 暂停并等待人工确认或处理。 |
+| `retrying` | `payload.status` | 等待或正在执行受控重试。 |
+| `resuming` | `payload.status` | 正在从等待或治理暂停状态恢复。 |
+| `reflecting` | `payload.status` | 系统正在调整执行策略。 |
+| `degraded` | `payload.status` | 模型或护栏进入降级处理。 |
+| `clear` | `payload.status` | 护栏检查通过或无额外动作。 |
+| `warning` | `payload.status` | 护栏产生提醒或需要关注的处理结果。 |
+| `remediated` | `payload.status` | 护栏已执行改写、过滤或脱敏处理。 |
+| `blocked` | `payload.status` | 护栏已阻止当前内容或动作。 |
+| `requires_action` | `payload.status` | 委派任务等待确认或补充动作；处理后可继续原 Run。 |
+| `pipeline_started` | `payload.status` | 子编排开始。 |
+| `pipeline_resumed` | `payload.status` | 等待处理后子编排整体恢复。 |
+| `intent_created` | `payload.status` | 本轮用户目标已记录。 |
+| `intent_recognized` | `payload.status` | 本轮意图识别已完成。 |
+| `intent_low_confidence` | `payload.status` | 意图置信度较低，运行进入保守处理。 |
+| `plan_generating` | `payload.status` | 正在生成执行计划。 |
+| `plan_created` | `payload.status` | 执行计划已生成。 |
+| `plan_step_created` | `payload.status` | 计划步骤已拆解。 |
+| `plan_step_mapped` | `payload.status` | 当前执行步骤已映射到计划。 |
+| `reasoning_summary_completed` | `payload.status` | 可展示的思考摘要已完成。 |
+| `divergence_detected` | `payload.status` | 检测到执行偏离；实际值也可能使用 none、uncertain、diverged、confirmed、replanned 或 resolved。 |
+| `none / uncertain / diverged / confirmed / replanned / resolved` | `payload.status` | divergence.detected 事件携带的偏离判断状态。 |
+| `divergence_replanned` | `payload.status` | 已按偏离情况重新调整执行计划。 |
+| `intent_family_classified` | `payload.status` | 意图族分类已完成。 |
+| `intent_family_fallback` | `payload.status` | 意图族识别降级至兜底路径。 |
+| `intent_family_schema_loaded` | `payload.status` | 意图族规则已加载。 |
+| `slot_filled` | `payload.status` | 执行所需信息已补齐。 |
+| `slot_missing` | `payload.status` | 执行仍缺少必要信息。 |
+| `clarification_requested` | `payload.status` | 已向用户请求澄清。 |
+| `clarification_fulfilled` | `payload.status` | 澄清信息已收到并回填。 |
+| `clarification_exhausted` | `payload.status` | 可用澄清轮次已耗尽。 |
+| `clarification_late_input_discarded` | `payload.status` | 运行进入终态后收到的迟到澄清输入已忽略。 |
+| `plan_template_recommended` | `payload.status` | 已推荐计划模板。 |
+| `plan_template_adoption_recorded` | `payload.status` | 已记录计划模板采纳结果。 |
+| `transition_rejected` | `payload.status` | 非法或过期的运行状态迁移已拒绝。 |
+| `late_result_discarded` | `payload.status` | 终态或失去执行权后的迟到结果已丢弃。 |
+| `failure_archived` | `payload.status` | 运行失败诊断信息已归档。 |
 

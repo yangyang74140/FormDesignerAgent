@@ -1,0 +1,801 @@
+{
+  "schemaVersion": "1.1.0",
+  "id": "2102291727872753664",
+  "layoutMode": "flow",
+  "fields": [
+    {
+      "id": "ctn_2102291727897919488",
+      "componentName": "SectionGroup",
+      "componentCategory": "container",
+      "isLinkageContainer": true,
+      "title": "分组",
+      "props": {
+        "notFormItem": true,
+        "label": "基础信息",
+        "name": "group_ctn_2102291727897919488",
+        "description": "",
+        "descriptionMode": "icon",
+        "showHeadDivider": true,
+        "headerStyle": "style3",
+        "titleColor": "#092c4d",
+        "layoutStyle": "layoutA",
+        "showBorder": false,
+        "hasMargin": false,
+        "display": true,
+        "disableCollapse": false,
+        "defaultCollapsed": false,
+        "hideTitle": false,
+        "size": "medium"
+      },
+      "children": [
+        {
+          "id": "2113510057405120512",
+          "componentName": "CheckboxGroup",
+          "componentCategory": "field",
+          "title": "复选框",
+          "props": {
+            "label": "复选框",
+            "required": false,
+            "options": {
+              "dataSource": [
+                {
+                  "primaryKey": "1",
+                  "value": "1",
+                  "label": "选项1",
+                  "activeKey": false,
+                  "disabled": false
+                },
+                {
+                  "primaryKey": "2",
+                  "value": "2",
+                  "label": "选项2",
+                  "activeKey": false,
+                  "disabled": false
+                },
+                {
+                  "primaryKey": "3",
+                  "value": "3",
+                  "label": "选项3",
+                  "activeKey": false,
+                  "disabled": false
+                }
+              ],
+              "isColor": false,
+              "nextValueSeed": 4
+            },
+            "direction": "horizontal",
+            "supportReverseSelect": true,
+            "name": "fxk_o4xb",
+            "extra": "",
+            "extraType": "icon",
+            "hideTitle": false,
+            "readOnlyDisplay": false,
+            "size": "medium",
+            "sourceFieldId": "2113510057405120512",
+            "disabledName": true,
+            "serviceDisabled": true
+          },
+          "parentSlot": "default",
+          "fieldTitle": "复选框"
+        },
+        {
+          "id": "2113510058256564224",
+          "componentName": "SelectMulti",
+          "componentCategory": "field",
+          "title": "下拉复选",
+          "props": {
+            "label": "下拉复选",
+            "required": false,
+            "placeholder": "请选择",
+            "options": {
+              "dataSource": [
+                {
+                  "primaryKey": "1",
+                  "value": "1",
+                  "label": "选项1",
+                  "activeKey": false,
+                  "disabled": false
+                },
+                {
+                  "primaryKey": "2",
+                  "value": "2",
+                  "label": "选项2",
+                  "activeKey": false,
+                  "disabled": false
+                },
+                {
+                  "primaryKey": "3",
+                  "value": "3",
+                  "label": "选项3",
+                  "activeKey": false,
+                  "disabled": false
+                }
+              ],
+              "isColor": false,
+              "nextValueSeed": 4
+            },
+            "showSearch": false,
+            "popupMatchSelectWidth": false,
+            "selectAll": false,
+            "supportReverseSelect": true,
+            "enableColor": false,
+            "name": "xlfx_bcgz",
+            "extra": "",
+            "extraType": "icon",
+            "hideTitle": false,
+            "readOnlyDisplay": false,
+            "size": "medium",
+            "sourceFieldId": "2113510058256564224",
+            "disabledName": true,
+            "serviceDisabled": true
+          },
+          "parentSlot": "default",
+          "fieldTitle": "下拉复选"
+        },
+        {
+          "id": "2113513079262740480",
+          "componentName": "SelectSingle",
+          "componentCategory": "field",
+          "title": "下拉单选",
+          "props": {
+            "label": "下拉单选",
+            "required": false,
+            "placeholder": "请选择",
+            "options": {
+              "dataSource": [
+                {
+                  "primaryKey": "1",
+                  "value": "1",
+                  "label": "选项1",
+                  "activeKey": false,
+                  "disabled": false
+                },
+                {
+                  "primaryKey": "2",
+                  "value": "2",
+                  "label": "选项2",
+                  "activeKey": false,
+                  "disabled": false
+                },
+                {
+                  "primaryKey": "3",
+                  "value": "3",
+                  "label": "选项3",
+                  "activeKey": false,
+                  "disabled": false
+                }
+              ],
+              "isColor": false,
+              "nextValueSeed": 4
+            },
+            "showSearch": false,
+            "allowClear": true,
+            "popupMatchSelectWidth": false,
+            "enableColor": false,
+            "name": "xldx_7n01",
+            "extra": "",
+            "extraType": "icon",
+            "hideTitle": false,
+            "readOnlyDisplay": false,
+            "size": "medium",
+            "sourceFieldId": "2113513079262740480",
+            "disabledName": true,
+            "serviceDisabled": true
+          },
+          "parentSlot": "default",
+          "fieldTitle": "下拉单选"
+        },
+        {
+          "id": "2113510058516611072",
+          "componentName": "CorrespondenceUnit",
+          "componentCategory": "field",
+          "title": "收发文单位",
+          "props": {
+            "label": "收发文单位",
+            "required": false,
+            "placeholder": "请输入",
+            "enableAdd": true,
+            "multiple": true,
+            "multipleContentDisplay": "space",
+            "enableDefaultValue": false,
+            "treeExpandLevelMode": "system",
+            "treeExpandLevel": 2,
+            "enableDataHyperlink": true,
+            "name": "sfwdw_6jdv",
+            "extra": "",
+            "extraType": "icon",
+            "hideTitle": false,
+            "readOnlyDisplay": true,
+            "size": "medium",
+            "sourceFieldId": "2113510058516611072",
+            "disabledName": true,
+            "serviceDisabled": true
+          },
+          "parentSlot": "default",
+          "fieldTitle": "收发文单位"
+        },
+        {
+          "id": "2112793011697147940",
+          "componentName": "Input",
+          "componentCategory": "field",
+          "title": "单行文本",
+          "fieldTitle": "会议名称",
+          "props": {
+            "maxLength": 200,
+            "label": "会议名称",
+            "name": "meeting_title",
+            "required": true,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291717886115840",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true
+          },
+          "parentSlot": "default"
+        },
+        {
+          "id": "2104450381794873344",
+          "componentName": "AssociateData",
+          "componentCategory": "field",
+          "title": "关联数据",
+          "fieldTitle": "会议类型",
+          "props": {
+            "dataType": "MEETING",
+            "multiple": false,
+            "optionType": "MEETING_TYPE",
+            "label": "会议类型",
+            "name": "meeting_type_id",
+            "required": true,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291717928058880",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true,
+            "appId": "2099746616990736386"
+          },
+          "parentSlot": "default"
+        },
+        {
+          "id": "2104450382403047424",
+          "componentName": "PersonSelect",
+          "componentCategory": "field",
+          "title": "人员选择",
+          "fieldTitle": "召集人",
+          "props": {
+            "multiple": false,
+            "label": "召集人",
+            "name": "convenor_id",
+            "required": true,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291717928058884",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true
+          },
+          "parentSlot": "default"
+        },
+        {
+          "id": "2104450382604374016",
+          "componentName": "NumberPicker",
+          "componentCategory": "field",
+          "title": "数字",
+          "fieldTitle": "应到人数",
+          "props": {
+            "max": 999,
+            "min": 0,
+            "precision": 0,
+            "label": "应到人数",
+            "name": "expected_attendees",
+            "required": false,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291717928058888",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true,
+            "minEnable": true,
+            "maxEnable": true
+          },
+          "parentSlot": "default"
+        },
+        {
+          "id": "2112793072271286272",
+          "componentName": "Input.TextArea",
+          "componentCategory": "field",
+          "title": "多行文本",
+          "fieldTitle": "会议内容",
+          "props": {
+            "maxLength": 300,
+            "label": "会议内容",
+            "name": "meeting_detail",
+            "required": false,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718146162688",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true,
+            "showLimitHint": true
+          },
+          "parentSlot": "default"
+        },
+        {
+          "id": "2104450383124467712",
+          "componentName": "PersonSelect",
+          "componentCategory": "field",
+          "title": "人员选择",
+          "fieldTitle": "参会人员",
+          "props": {
+            "multiple": true,
+            "label": "参会人员",
+            "name": "participants",
+            "required": false,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718146162690",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true,
+            "multipleContentDisplay": "space"
+          },
+          "parentSlot": "default"
+        },
+        {
+          "id": "2104450383321600000",
+          "componentName": "Upload",
+          "componentCategory": "field",
+          "title": "附件",
+          "fieldTitle": "会议材料",
+          "props": {
+            "multiple": true,
+            "label": "会议材料",
+            "name": "attachments",
+            "required": false,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718146162692",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "uploadDirectory": "1000000000000000000",
+            "disabledName": true,
+            "serviceDisabled": true,
+            "displaySettings": {
+              "hiddenActions": [],
+              "visibleFields": [],
+              "showAttachmentTip": false
+            }
+          },
+          "parentSlot": "default"
+        }
+      ],
+      "fieldTitle": "基础信息"
+    },
+    {
+      "id": "ctn_2102291727897919489",
+      "componentName": "SectionGroup",
+      "componentCategory": "container",
+      "isLinkageContainer": true,
+      "title": "分组",
+      "props": {
+        "notFormItem": true,
+        "label": "时间与地点",
+        "name": "group_ctn_2102291727897919489",
+        "description": "",
+        "descriptionMode": "icon",
+        "showHeadDivider": true,
+        "headerStyle": "style3",
+        "titleColor": "#092c4d",
+        "layoutStyle": "layoutA",
+        "showBorder": false,
+        "hasMargin": false,
+        "display": true,
+        "disableCollapse": false,
+        "defaultCollapsed": false,
+        "hideTitle": false,
+        "size": "medium"
+      },
+      "children": [
+        {
+          "id": "2112793073969979392",
+          "componentName": "DatePicker",
+          "componentCategory": "field",
+          "title": "日期",
+          "fieldTitle": "开始时间",
+          "props": {
+            "format": "YYYY-MM-DD HH:mm",
+            "showTime": true,
+            "label": "开始时间",
+            "name": "meeting_start_time",
+            "required": true,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718146162694",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true
+          },
+          "parentSlot": "default"
+        },
+        {
+          "id": "2112793074490073088",
+          "componentName": "DatePicker",
+          "componentCategory": "field",
+          "title": "日期",
+          "fieldTitle": "结束时间",
+          "props": {
+            "format": "YYYY-MM-DD HH:mm",
+            "showTime": true,
+            "label": "结束时间",
+            "name": "meeting_end_time",
+            "required": true,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718146162696",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true
+          },
+          "parentSlot": "default"
+        },
+        {
+          "id": "2104450391995420672",
+          "componentName": "AssociateData",
+          "componentCategory": "field",
+          "title": "关联数据",
+          "fieldTitle": "会议地点",
+          "props": {
+            "dataType": "MEETING",
+            "multiple": false,
+            "optionType": "MEETING_ROOM",
+            "label": "会议地点",
+            "name": "room_id",
+            "required": false,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718146162698",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "meetingStartTime": "meeting_start_time",
+            "meetingRoomUsage": true,
+            "appId": "2083038495270350850",
+            "meetingEndTime": "meeting_end_time",
+            "disabledName": true,
+            "serviceDisabled": true,
+            "textAlign": "left"
+          },
+          "parentSlot": "default"
+        },
+        {
+          "id": "2104450392700063744",
+          "componentName": "RepeatCycle",
+          "componentCategory": "field",
+          "title": "重复周期",
+          "fieldTitle": "重复周期",
+          "props": {
+            "componentName": "RepeatCycle",
+            "defaultValue": {
+              "type": "none"
+            },
+            "startTimeField": "meeting_start_time",
+            "label": "重复周期",
+            "name": "repeat_cycle",
+            "required": false,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718146162702",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true,
+            "labelPosition": "left"
+          },
+          "parentSlot": "default"
+        },
+        {
+          "id": "2104450393551507456",
+          "componentName": "MessageRemind",
+          "componentCategory": "field",
+          "title": "消息提醒",
+          "fieldTitle": "消息提醒",
+          "props": {
+            "componentName": "MessageRemind",
+            "defaultValue": {
+              "enabled": false
+            },
+            "label": "消息提醒",
+            "name": "message_remind",
+            "required": false,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718146162708",
+            "subFormId": "2102291717881921537",
+            "subFormName": "会议",
+            "subFormDbName": "meeting_form_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true
+          },
+          "parentSlot": "default"
+        }
+      ],
+      "fieldTitle": "时间与地点"
+    },
+    {
+      "id": "2112793079443546112",
+      "componentName": "CustomSubForm",
+      "componentCategory": "field",
+      "title": "子表单",
+      "fieldTitle": "会议议程",
+      "props": {
+        "label": "会议议程",
+        "name": "meeting_agenda_2102291717881921536",
+        "extra": "",
+        "extraType": "text",
+        "enableAddEntry": true,
+        "enableBatchDelete": false,
+        "enableBatchImport": false,
+        "enableExport": false,
+        "enableRowActions": true,
+        "enableHorizontalScroll": true,
+        "theme": "zebra",
+        "showHeader": true,
+        "showIndex": true,
+        "enablePagination": false,
+        "freezeHeader": false,
+        "freezeColumnCount": 0,
+        "defaultRowCount": 0,
+        "maxRowCount": 0,
+        "add": true,
+        "allowCopyRow": true,
+        "allowEditRow": true,
+        "allowDeleteRow": true,
+        "showColumnTotal": false,
+        "edit": true,
+        "display": true,
+        "hideTitle": false,
+        "quickSearch": {
+          "enabled": false,
+          "fieldIds": []
+        },
+        "fieldColumnWidths": {
+          "2102291727889530918": 320,
+          "2102291727889530921": 100,
+          "2102291727889530920": 300
+        },
+        "manualSortFields": [],
+        "extension": {},
+        "required": false,
+        "readOnlyDisplay": false,
+        "subFormName": "会议议程",
+        "subFormDbName": "meeting_agenda_2102291717881921536",
+        "subFormId": "2102291718150356998",
+        "sourceFieldId": "2102291718150356998",
+        "componentName": "CustomSubForm",
+        "fieldIndex": "0",
+        "disabledName": true,
+        "serviceDisabled": true
+      },
+      "children": [
+        {
+          "id": "2112793011697147929",
+          "componentName": "Input",
+          "componentCategory": "field",
+          "title": "单行文本",
+          "fieldTitle": "议程名称",
+          "props": {
+            "maxLength": 200,
+            "label": "议程名称",
+            "name": "title",
+            "required": true,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718150356999",
+            "subFormId": "2102291718150356998",
+            "subFormName": "会议议程",
+            "subFormDbName": "meeting_agenda_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true
+          }
+        },
+        {
+          "id": "2112793011697147931",
+          "componentName": "PersonSelect",
+          "componentCategory": "field",
+          "title": "人员选择",
+          "fieldTitle": "负责人",
+          "props": {
+            "multiple": false,
+            "label": "负责人",
+            "name": "owner_id",
+            "required": true,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718150357003",
+            "subFormId": "2102291718150356998",
+            "subFormName": "会议议程",
+            "subFormDbName": "meeting_agenda_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true
+          }
+        },
+        {
+          "id": "2112793011697147933",
+          "componentName": "Switch",
+          "componentCategory": "field",
+          "title": "开关",
+          "fieldTitle": "是否公开",
+          "props": {
+            "label": "公开",
+            "name": "public_visible",
+            "required": false,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718150357007",
+            "subFormId": "2102291718150356998",
+            "subFormName": "会议议程",
+            "subFormDbName": "meeting_agenda_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true,
+            "extra": "勾选后该议程对参会人员公开",
+            "extraType": "icon"
+          }
+        }
+      ],
+      "subtableId": "2112793079443546112"
+    },
+    {
+      "id": "2112793078260752384",
+      "componentName": "CustomSubForm",
+      "componentCategory": "field",
+      "title": "子表单",
+      "fieldTitle": "会议服务",
+      "props": {
+        "label": "会议服务",
+        "name": "meeting_service_2102291717881921536",
+        "extra": "",
+        "extraType": "text",
+        "enableAddEntry": true,
+        "enableBatchDelete": false,
+        "enableBatchImport": false,
+        "enableExport": false,
+        "enableRowActions": true,
+        "enableHorizontalScroll": true,
+        "theme": "zebra",
+        "showHeader": true,
+        "showIndex": true,
+        "enablePagination": false,
+        "freezeHeader": false,
+        "freezeColumnCount": 0,
+        "defaultRowCount": 0,
+        "maxRowCount": 0,
+        "add": true,
+        "allowCopyRow": true,
+        "allowEditRow": true,
+        "allowDeleteRow": true,
+        "showColumnTotal": false,
+        "edit": true,
+        "display": true,
+        "hideTitle": false,
+        "quickSearch": {
+          "enabled": false,
+          "fieldIds": []
+        },
+        "fieldColumnWidths": {
+          "2102291727893725192": 320,
+          "2102291727893725193": 300,
+          "2102291727893725194": 300
+        },
+        "manualSortFields": [],
+        "extension": {},
+        "required": false,
+        "readOnlyDisplay": false,
+        "subFormName": "会议服务",
+        "subFormDbName": "meeting_service_2102291717881921536",
+        "subFormId": "2102291718150357011",
+        "sourceFieldId": "2102291718150357011",
+        "componentName": "CustomSubForm",
+        "fieldIndex": "0",
+        "disabledName": true,
+        "serviceDisabled": true
+      },
+      "children": [
+        {
+          "id": "2112793011697147935",
+          "componentName": "AssociateData",
+          "componentCategory": "field",
+          "title": "关联数据",
+          "fieldTitle": "服务项目",
+          "props": {
+            "dataType": "MEETING",
+            "multiple": false,
+            "optionType": "MEETING_SERVICE",
+            "label": "服务项目",
+            "name": "service_id",
+            "required": true,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718150357012",
+            "subFormId": "2102291718150357011",
+            "subFormName": "会议服务",
+            "subFormDbName": "meeting_service_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true,
+            "appId": "2099746616990736386"
+          }
+        },
+        {
+          "id": "2112793011697147937",
+          "componentName": "PersonSelect",
+          "componentCategory": "field",
+          "title": "人员选择",
+          "fieldTitle": "负责人",
+          "props": {
+            "multiple": false,
+            "label": "负责人",
+            "name": "responsible_id",
+            "required": true,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718150357016",
+            "subFormId": "2102291718150357011",
+            "subFormName": "会议服务",
+            "subFormDbName": "meeting_service_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true
+          }
+        },
+        {
+          "id": "2112793011697147939",
+          "componentName": "Input",
+          "componentCategory": "field",
+          "title": "单行文本",
+          "fieldTitle": "其他服务说明",
+          "props": {
+            "maxLength": 500,
+            "label": "其他服务说明",
+            "name": "other_service_text",
+            "required": false,
+            "edit": true,
+            "display": true,
+            "sourceFieldId": "2102291718150357020",
+            "subFormId": "2102291718150357011",
+            "subFormName": "会议服务",
+            "subFormDbName": "meeting_service_2102291717881921536",
+            "disabledName": true,
+            "serviceDisabled": true
+          }
+        }
+      ],
+      "subtableId": "2112793078260752384"
+    }
+  ],
+  "props": {
+    "description": "",
+    "columns": 2,
+    "labelPosition": "left",
+    "labelWidth": 80,
+    "textAlign": "left",
+    "rowHeight": "16px"
+  }
+}
