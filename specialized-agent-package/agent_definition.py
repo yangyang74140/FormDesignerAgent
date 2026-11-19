@@ -45,10 +45,15 @@ def compile_platform_proposal(ir_payload: Any, context: Any) -> dict[str, Any]:
     if isinstance(items, list) and any(
         isinstance(item, dict) and item.get("capability") == "proposal.begin" for item in items
     ):
-        missing = [
-            key for key in ("currentSchema", "capabilities", "supportedActionVersions")
-            if not host.get(key)
-        ]
+        property_request = any(
+            isinstance(item, dict) and isinstance(item.get("slots"), dict)
+            and str(item["slots"].get("result_kind", "")).startswith("property_")
+            for item in items
+        )
+        required_context = ("currentSchema", "capabilities") if property_request else (
+            "currentSchema", "capabilities", "supportedActionVersions"
+        )
+        missing = [key for key in required_context if not host.get(key)]
         if missing:
             return compile_form_proposal({
                 "capability": "proposal.needs_clarification",
@@ -100,14 +105,30 @@ async def generate_form_proposal(step_context: Any) -> Any:
             "每个 capability 项目必须同时包含 capability 字符串和 slots 对象，不得省略 slots。",
             "每次必须且只能包含一个 proposal.* 状态项目。",
             "新建完整表单必须使用 plan_items：第一项是 proposal.begin，result_kind=form_fields、mode=replace_empty_form；后续为全部字段各一条 form.field.define。",
-            "增量修改必须使用 plan_items：第一项是 proposal.begin，result_kind=form_actions、mode=append；后续为最小动作项目。",
+            "已有画布只新增字段时，第一项为 proposal.begin，result_kind=form_fields、mode=append；后续仅定义新增的 form.field.define，不重生成已有字段。",
+            "append 默认插入 currentSchema.fields 中最后一个 componentCategory=field（缺省视为 field）的组件之后；不指定位置时省略 target。",
+            "在 XX 后/前新增字段时，在 proposal.begin.slots.target 使用 kind=relative、position=after/before，并从 currentSchema 读取 anchorNodeId；也可传原样 anchorLabel 或 anchorName，由编译器唯一匹配。当前字段使用 useSelection=true。",
+            "相同锚点的一批新字段按用户描述顺序定义，由编译器计算连续插入下标，不能重复定义已有字段。目标不存在、重名或选择为空时必须澄清，不默认改为末尾追加。",
+            "七类组件的属性编辑统一使用 proposal.begin result_kind=property_changes + form.property.change；查询用 property_query + form.property.query；撤销用 property_undo + form.property.undo。属性复制通过 change.operation=copy，不直接复制身份信息。新旧路径不得混用。",
+            "每条属性 IR 使用 node_id 或 use_selection=true，也可用 node_label/node_name 唯一定位；property 必须来自宿主 properties 目录。operation=set/clear/unset/reset/copy，set 必须有 value；copy 使用 source_node_id/source_property。",
+            "必添/不能为空映射 required；提示文字映射 placeholder；长度上限映射 textLengthLimit，不是 maxLength；标签靠左映射 titleAlign，不是 labelAlign；手机号优先内置 formatValidation。禁用按权限语义处理，不能虚构 disabled。",
+            "属性目录提供值类型、枚举、范围、默认值和操作；开启必填转换 boolean，数字 0 是合法值，文本默认值 1 保留字符串；选项必须保留真实业务 value，不猜序号。",
+            "大一点、加一个规则等存在多种解释时使用 proposal.needs_clarification；宿主未声明的宽度、规则、联动或撤销使用 unsupported，不生成 JS 字符串表达式。",
+            "用户明确请求的属性 selected=true，额外建议 selected=false；一行一个完整语义操作，默认值模式和值、权限联动不拆散；before/after、ID 和文案由编译器生成。",
+            "独立校验使用 property_changes + form.property.rule，slots 包含目标、operation=add/replace/remove、rule_type、rule_id，add/replace 带 value；必须来自宿主 ruleCatalog，不把任意正则或 rules 数组当成已注册校验。",
+            "条件联动使用 property_changes + form.property.linkage，slots 包含目标、operation=add/replace/remove、linkage_type、linkage_id，add/replace 带目录允许的 AST value；字段和选项值均来自真实快照，不输出字符串表达式。",
+            "撤销使用 property_undo + form.property.undo，transaction_id 必须取自 history 的当前可撤销事务；不能用旧属性值构造逆向覆盖。",
+            "普通删除、移动、插入等保留 result_kind=form_actions、mode=append 和最小动作；此路径插入动作必须给真实 anchorNodeId。",
+
             "needs_clarification、unsupported、no_change 没有字段或动作时，也必须使用只含一个项目的 plan_items 数组。",
             "form.field.define 只填写 client_ref、component_name、label、name、required、placeholder、options。",
             "首期仅支持 Input、Input.TextArea、DatePicker、TimePicker、NumberPicker、SelectSingle、SelectMulti、CheckboxGroup、Switch。",
-            "完整生成仅用于 Schema 1.0.0 的空白单层 Flow 画布；否则澄清或 unsupported。",
-            "修改现有表单使用 form_actions + append，优先最小增量动作并保留未提及字段、ID、name 和布局。",
+            "字段生成支持 Schema 1.0.0 和 1.1.0 的单层 Flow 画布。空白时 replace_empty_form，非空时必须 append；保留已有 ID、name、props、选项和配置。",
+            "属性编辑使用新属性协议；其他现有表单编辑使用 form_actions + append，保留未提及字段、ID、name 和布局。",
+            "查询必须读取 resolvedProperties 和真实 Schema，区分本地、继承和默认值；查询输出只读，不产生修改动作。撤销必须引用真实 history 事务，不能生成反向覆盖补丁。",
+            "本轮上下文包括 resolvedProperties、history 和 capabilities.nodePolicies；保存锁、设备和布局限制不能绕过。最终动作只在宿主声明支持的协议版本下生成。" ,
             "当前组件绑定发送时 selection.nodeId；无选择且目标依赖当前组件时必须澄清。",
-            "前后插入必须给出真实 anchorNodeId 和 before/after；首期不生成容器、槽位或 Grid 目标。",
+            "首期不生成容器、槽位或 Grid 目标；不把 presentation.fields 全量展示快照当作替换画布或保存的数据。",
             "字段类型转换只允许明确标记为未保存的新字段；有损转换必须先澄清。",
             "规则和公式只能引用真实字段或本批 clientRef，不得生成 SQL、eval、JavaScript 或未注册函数。",
             "executionResult 为 applied 前只能说已生成提案；applied 也不能声称已保存。conflict 时必须刷新上下文。",
@@ -159,17 +180,18 @@ async def generate_form_proposal(step_context: Any) -> Any:
                             "capability": "proposal.begin",
                             "slots": {
                                 "summary": "将当前字段设为必填。",
-                                "result_kind": "form_actions",
+                                "result_kind": "property_changes",
                                 "mode": "append",
                             },
                         },
                         {
-                            "capability": "form.update_component",
+                            "capability": "form.property.change",
                             "slots": {
-                                "payload": {
-                                    "useSelection": True,
-                                    "changes": {"required": True},
-                                }
+                                "use_selection": True,
+                                "property": "required",
+                                "operation": "set",
+                                "value": True,
+                                "selected": True,
                             },
                         },
                     ]
@@ -189,6 +211,53 @@ async def generate_form_proposal(step_context: Any) -> Any:
                         }
                     ]
                 },
+            },
+            {
+                "input": "在学号后新增监护人字段（currentSchema 中存在唯一标签为学号的字段）",
+                "output": {
+                    "plan_items": [
+                        {
+                            "capability": "proposal.begin",
+                            "slots": {
+                                "summary": "在学号后新增监护人字段。",
+                                "result_kind": "form_fields",
+                                "mode": "append",
+                                "target": {"kind": "relative", "anchorLabel": "学号", "position": "after"},
+                            },
+                        },
+                        {
+                            "capability": "form.field.define",
+                            "slots": {
+                                "client_ref": "guardian",
+                                "component_name": "Input",
+                                "label": "监护人",
+                                "name": "guardian",
+                            },
+                        },
+                    ]
+                },
+            },
+            {
+                "input": "这个组件现在是不是必填？",
+                "output": {"plan_items": [
+                    {"capability": "proposal.begin", "slots": {
+                        "summary": "查询当前组件的必填状态。", "result_kind": "property_query"
+                    }},
+                    {"capability": "form.property.query", "slots": {
+                        "use_selection": True, "property": "required"
+                    }},
+                ]},
+            },
+            {
+                "input": "把它改成大一点（没有说明宽度、字号或组件尺寸）",
+                "output": {"plan_items": [
+                    {"capability": "proposal.needs_clarification", "slots": {
+                        "summary": "需要确认调整对象。",
+                        "question": "你希望调整组件尺寸、输入框宽度，还是字体大小？",
+                        "choices": ["组件尺寸", "输入框宽度", "字体大小"],
+                        "code": "AMBIGUOUS_PROPERTY"
+                    }},
+                ]},
             },
         ],
     )
@@ -216,7 +285,7 @@ def register_agent(context: Any) -> None:
     design_intent = builder.intent(
         key="design_form",
         name="设计与修改表单",
-        description="生成单层 Flow 表单字段列表，或按宿主快照生成可执行的增量修改提案。",
+        description="识别属性修改/查询/复制/清空/重置/规则/撤销意图，生成七组件属性勾选提案或单层 Flow 表单字段及增量动作。",
         examples=[
             "创建一份员工入职登记表",
             "把当前字段改为必填，并在它后面插入备注字段",

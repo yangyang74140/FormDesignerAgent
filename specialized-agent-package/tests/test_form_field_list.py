@@ -105,7 +105,7 @@ class FormFieldListTests(unittest.TestCase):
         for mutation, message in (
             ({"canvas": {"layoutMode": "grid", "isBlank": True}}, "flow"),
             ({"canvas": {"layoutMode": "flow", "isBlank": False}}, "空白"),
-            ({"schemaVersion": "1.1.0"}, "Schema 1.0.0"),
+            ({"schemaVersion": "2.0.0"}, "Schema 1.0.0"),
         ):
             context = blank_context()
             context.update(mutation)

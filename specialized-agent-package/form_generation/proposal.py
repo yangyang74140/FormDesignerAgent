@@ -8,6 +8,20 @@ import re
 from copy import deepcopy
 from typing import Any, Mapping
 
+if __package__:
+    from .properties import compile_property_proposal, property_capabilities
+else:
+    # Standalone compiler consumers load this file without a package namespace.
+    import importlib.util
+    from pathlib import Path
+    _property_spec = importlib.util.spec_from_file_location(
+        "form_property_compiler", Path(__file__).with_name("properties.py")
+    )
+    _property_module = importlib.util.module_from_spec(_property_spec)
+    _property_spec.loader.exec_module(_property_module)
+    compile_property_proposal = _property_module.compile_property_proposal
+    property_capabilities = _property_module.property_capabilities
+
 FORM_AGENT_PROTOCOL = "form-agent.v1"
 FORM_PROPOSAL_CONTRACT = "form_agent_proposal.v1"
 FORM_FIELD_LIST_CONTRACT = "form_field_list.v1"
@@ -15,6 +29,11 @@ FORM_PROPOSAL_EVENT = "form.proposal.completed"
 FORM_PROPOSAL_PIPELINE = "form_proposal_generation"
 FORM_PROPOSAL_STEP = "form.proposal.generate"
 FORM_SCHEMA_VERSION = "1.0.0"
+SUPPORTED_SCHEMA_VERSIONS = frozenset({"1.0.0", "1.1.0"})
+
+
+class _AnchorRequired(ValueError):
+    """A missing or ambiguous host anchor needs a user decision."""
 
 FLOW_COMPONENTS = (
     "Input",
@@ -67,8 +86,9 @@ def proposal_capabilities() -> list[dict[str, Any]]:
         {
             "capability": "proposal.begin",
             "semantics": (
-                "开始一个 ready 提案。创建完整表单时使用 form_fields + replace_empty_form；"
-                "修改现有表单时使用 form_actions + append。"
+                "开始一个 ready 提案。空白表单使用 form_fields + replace_empty_form；"
+                "已有表单新增字段使用 form_fields + append，可用 target 指定插入位置；"
+                "其他修改使用 form_actions + append。"
             ),
             "slots_schema": {
                 "type": "object",
@@ -76,8 +96,21 @@ def proposal_capabilities() -> list[dict[str, Any]]:
                 "properties": {
                     "title": {"type": "string"},
                     "summary": {"type": "string"},
-                    "result_kind": {"type": "string", "enum": ["form_fields", "form_actions"]},
+                    "result_kind": {"type": "string", "enum": ["form_fields", "form_actions", "property_changes", "property_query", "property_undo"]},
                     "mode": {"type": "string", "enum": ["replace_empty_form", "append"]},
+                    "target": {
+                        "type": "object",
+                        "required": ["kind"],
+                        "properties": {
+                            "kind": {"type": "string", "enum": ["root", "relative"]},
+                            "index": {"type": "integer", "minimum": 0},
+                            "anchorNodeId": {"type": "string"},
+                            "anchorName": {"type": "string"},
+                            "anchorLabel": {"type": "string"},
+                            "useSelection": {"type": "boolean"},
+                            "position": {"type": "string", "enum": ["before", "after"]},
+                        },
+                    },
                 },
             },
         },
@@ -156,20 +189,23 @@ def proposal_capabilities() -> list[dict[str, Any]]:
                 },
             }
         )
-    return capabilities
+    return capabilities + property_capabilities()
 
 
 def normalize_host_context(step_context: Any) -> dict[str, Any]:
     """Normalize the host snapshot without guessing missing canvas state."""
-    source = getattr(step_context, "context", None)
+    source = step_context if isinstance(step_context, Mapping) else getattr(step_context, "context", None)
+    if isinstance(source, Mapping) and isinstance(source.get("context"), Mapping):
+        source = source["context"]
     source = source if isinstance(source, Mapping) else {}
     capabilities = deepcopy(source.get("capabilities")) if isinstance(source.get("capabilities"), (Mapping, list)) else {}
     nested_capabilities = capabilities if isinstance(capabilities, Mapping) else {}
+    schema = _first_mapping(source, "currentSchema", "current_form_schema", "current_page_schema", "form_schema")
     return {
         "requestId": _text(source.get("requestId") or source.get("request_id")),
-        "schemaVersion": _text(source.get("schemaVersion") or source.get("schema_version"), FORM_SCHEMA_VERSION),
+        "schemaVersion": _text(source.get("schemaVersion") or source.get("schema_version") or schema.get("schemaVersion"), FORM_SCHEMA_VERSION),
         "target": _first_mapping(source, "target"),
-        "currentSchema": _first_mapping(source, "currentSchema", "current_form_schema", "current_page_schema", "form_schema"),
+        "currentSchema": schema,
         "selection": _first_mapping(source, "selection"),
         "canvas": _first_mapping(source, "canvas"),
         "capabilities": capabilities,
@@ -177,6 +213,11 @@ def normalize_host_context(step_context: Any) -> dict[str, Any]:
         "optionRules": _first_mapping(source, "optionRules") or deepcopy(nested_capabilities.get("optionRules", {})),
         "supportedActionVersions": deepcopy(source.get("supportedActionVersions")) if isinstance(source.get("supportedActionVersions"), (Mapping, list)) else {},
         "executionResult": deepcopy(source.get("executionResult")) if isinstance(source.get("executionResult"), Mapping) else {},
+        "resolvedProperties": _first_mapping(source, "resolvedProperties"),
+        "history": _first_mapping(source, "history"),
+        "rules": _first_mapping(source, "rules"),
+        "linkages": _first_mapping(source, "linkages"),
+        "nodePolicies": _first_mapping(source, "nodePolicies") or _first_mapping(nested_capabilities, "nodePolicies"),
     }
 
 
@@ -186,9 +227,15 @@ def compile_form_proposal(ir_payload: Any, step_context: Any) -> dict[str, Any]:
     items = ir_payload.get("plan_items") if isinstance(ir_payload, Mapping) else None
     if not isinstance(items, list):
         items = [ir_payload]
-    items = [item for item in items if isinstance(item, Mapping)]
-    if not items:
-        raise ValueError("提案没有任何有效项目")
+    if not items or any(not isinstance(item, Mapping) for item in items):
+        raise ValueError("提案没有有效项目或包含非法项目")
+    known = _STATE_CAPABILITIES | {_FIELD_CAPABILITY} | set(ACTION_KINDS) | {
+        entry["capability"] for entry in property_capabilities()
+    }
+    unknown = [item.get("capability") for item in items
+               if not isinstance(item.get("capability"), str) or item["capability"] not in known]
+    if unknown:
+        raise ValueError(f"提案包含未注册能力: {unknown}")
 
     state_items = [item for item in items if _text(item.get("capability")) in _STATE_CAPABILITIES]
     if len(state_items) != 1:
@@ -232,12 +279,23 @@ def compile_form_proposal(ir_payload: Any, step_context: Any) -> dict[str, Any]:
         raise ValueError(f"不支持的提案状态: {state}")
 
     base["status"] = "ready"
+    result_kind = _text(slots.get("result_kind"))
+    if result_kind in {"property_changes", "property_query", "property_undo"}:
+        return _completed(compile_property_proposal(items, context, base))
     execution_result = context.get("executionResult") if isinstance(context.get("executionResult"), Mapping) else {}
     if _text(execution_result.get("status")).lower() == "conflict":
         raise ValueError("前次执行发生 revision conflict，必须刷新宿主上下文后生成新提案")
     result_kind = _text(slots.get("result_kind"))
+    if any(str(item.get("capability", "")).startswith("form.property.") for item in items):
+        raise ValueError("属性 IR 必须使用 property_changes/property_query/property_undo")
     if result_kind == "form_fields":
-        _compile_form_fields(base, slots, items, context)
+        try:
+            _compile_form_fields(base, slots, items, context)
+        except _AnchorRequired as error:
+            base["status"] = "needs_clarification"
+            base["question"] = str(error)
+            base["summary"] = "需要确认新增字段的插入位置。"
+            base["diagnostics"] = [_diagnostic("ANCHOR_FIELD_REQUIRED", str(error))]
         return _completed(base)
     if result_kind != "form_actions":
         raise ValueError("result_kind 必须是 form_fields 或 form_actions")
@@ -251,15 +309,27 @@ def _compile_form_fields(
     items: list[Mapping[str, Any]],
     context: Mapping[str, Any],
 ) -> None:
-    if _text(slots.get("mode"), "replace_empty_form") != "replace_empty_form":
-        raise ValueError("完整表单生成必须使用 replace_empty_form")
-    if context.get("schemaVersion") != FORM_SCHEMA_VERSION:
-        raise ValueError(f"首期只支持 Schema {FORM_SCHEMA_VERSION}")
+    mode = _text(slots.get("mode"), "replace_empty_form")
+    if mode not in {"replace_empty_form", "append"}:
+        raise ValueError("字段生成只支持 replace_empty_form 或 append")
+    schema = context.get("currentSchema", {})
+    if context.get("schemaVersion") not in SUPPORTED_SCHEMA_VERSIONS:
+        raise ValueError("只支持 Schema 1.0.0 或 1.1.0")
+    if schema.get("schemaVersion", context["schemaVersion"]) != context["schemaVersion"]:
+        raise ValueError("schemaVersion 与 currentSchema.schemaVersion 不一致")
     canvas = context.get("canvas") if isinstance(context.get("canvas"), Mapping) else {}
-    if _text(canvas.get("layoutMode"), "flow").lower() != "flow":
-        raise ValueError("首期完整表单生成只支持 flow 布局")
-    if not _is_blank_canvas(context):
+    if _text(canvas.get("layoutMode"), "flow").lower() != "flow" or _text(schema.get("layoutMode"), "flow").lower() != "flow":
+        raise ValueError("字段生成只支持 flow 布局")
+    if mode == "replace_empty_form" and not _is_blank_canvas(context):
         raise ValueError("replace_empty_form 只允许用于空白表单")
+    existing = schema.get("fields")
+    if not isinstance(existing, list):
+        raise ValueError("currentSchema 必须包含 fields 数组")
+    if any(not isinstance(field, Mapping) or field.get("children") or field.get("fields") for field in existing):
+        raise ValueError("字段生成只支持单层 Flow 组件")
+    if existing:
+        _validate_schema(schema, context)
+    insertion_index = _field_insertion_index(slots.get("target"), existing, context) if mode == "append" else 0
 
     version = _action_version(context)
     supported_actions = _supported_actions(context)
@@ -279,12 +349,15 @@ def _compile_form_fields(
     if not field_items:
         raise ValueError("完整表单至少包含一个字段")
     max_fields = _positive_int(_field_name_rules(context).get("maxFields"), 32)
-    if len(field_items) > max_fields:
+    if len(field_items) + sum(_is_field_node(field) for field in existing) > max_fields:
         raise ValueError(f"字段数量超过宿主限制: {max_fields}")
 
     fields: list[dict[str, Any]] = []
     actions: list[dict[str, Any]] = []
-    seen_refs: set[str] = set()
+    seen_refs: set[str] = {
+        _text(field.get("clientRef") or field.get("id")) for field in existing
+    }
+    seen_refs.update(_text(field.get("id")) for field in existing)
     seen_names = _existing_field_names(context)
     for index, item in enumerate(field_items):
         field_slots = item.get("slots") if isinstance(item.get("slots"), Mapping) else {}
@@ -297,30 +370,96 @@ def _compile_form_fields(
                 "clientRef": field["clientRef"],
                 "componentName": field["componentName"],
                 "props": deepcopy(field["props"]),
-                "target": {"kind": "root", "index": index},
+                "target": {"kind": "root", "index": insertion_index + index},
             },
         })
 
-    title = _text(slots.get("title"), "新表单")
-    base["presentation"] = {
-        "kind": "form_field_list",
-        "contractVersion": FORM_FIELD_LIST_CONTRACT,
-        "title": title,
-        "layoutMode": "flow",
-        "fieldCount": len(fields),
-        "fields": fields,
-    }
+    latest_fields = deepcopy(existing)
+    latest_fields[insertion_index:insertion_index] = fields
+    changes = [
+        {"operation": "insert", "index": insertion_index + index, "field": deepcopy(field)}
+        for index, field in enumerate(fields)
+    ]
+    _set_field_presentation(base, slots, latest_fields, changes, context)
     base["result"] = {
         "kind": "form_actions",
-        "mode": "replace_empty_form",
+        "mode": mode,
         "schemaVersion": version,
         "actions": actions,
     }
     base["validation"] = {
         "status": "passed",
-        "schemaVersion": FORM_SCHEMA_VERSION,
+        "schemaVersion": context["schemaVersion"],
         "actionVersion": version,
-        "fieldCount": len(fields),
+        "fieldCount": len(latest_fields),
+    }
+
+
+def _is_field_node(node: Mapping[str, Any]) -> bool:
+    return node.get("componentCategory", "field") == "field"
+
+
+def _field_insertion_index(value: Any, fields: list, context: Mapping[str, Any]) -> int:
+    if value is None:
+        return next((index + 1 for index in range(len(fields) - 1, -1, -1) if _is_field_node(fields[index])), len(fields))
+    if not isinstance(value, Mapping):
+        raise ValueError("target 必须是对象")
+    kind = _text(value.get("kind"))
+    if kind == "root":
+        index = value.get("index", len(fields))
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index <= len(fields):
+            raise ValueError("root target.index 超出当前组件列表范围")
+        return index
+    if kind != "relative":
+        raise ValueError(f"首期单层 Flow 不支持 target.kind: {kind}")
+    if value.get("position") not in {"before", "after"}:
+        raise ValueError("relative target 必须声明 before/after")
+    selectors = {key: _text(value.get(key)) for key in ("anchorNodeId", "anchorName", "anchorLabel") if _text(value.get(key))}
+    if value.get("useSelection") is True:
+        selected = _text(context.get("selection", {}).get("nodeId"))
+        if not selected:
+            raise _AnchorRequired("请先选择一个字段，或提供插入位置的字段名称或 ID。")
+        if "anchorNodeId" in selectors and selectors["anchorNodeId"] != selected:
+            raise _AnchorRequired("当前选中字段与指定 ID 不一致，请确认插入位置。")
+        selectors["anchorNodeId"] = selected
+    if not selectors:
+        raise _AnchorRequired("请提供插入位置的字段名称、name 或 ID。")
+    matches = []
+    for index, node in enumerate(fields):
+        props = node.get("props") if isinstance(node.get("props"), Mapping) else {}
+        values = {
+            "anchorNodeId": {_text(node.get("id"))},
+            "anchorName": {_text(props.get("name"))},
+            "anchorLabel": {_text(props.get("label")), _text(node.get("fieldTitle"))},
+        }
+        if all(selector in values[key] for key, selector in selectors.items()):
+            matches.append(index)
+    if len(matches) != 1:
+        raise _AnchorRequired("目标字段不存在或名称重复，请提供唯一的字段 name 或 ID。")
+    anchor = fields[matches[0]]
+    if not _text(anchor.get("id")):
+        raise _AnchorRequired("目标字段缺少真实 ID，请刷新画布上下文后重试。")
+    return matches[0] + (value["position"] == "after")
+
+
+def _set_field_presentation(
+    base: dict[str, Any], slots: Mapping[str, Any], fields: list,
+    changes: list[dict[str, Any]], context: Mapping[str, Any],
+) -> None:
+    display_fields = deepcopy(fields)
+    display_changes = deepcopy(changes)
+    for field in display_fields + [change["field"] for change in display_changes]:
+        component = _text(field.get("componentName"))
+        field.setdefault("componentLabel", _component_label(component, context.get("capabilities")))
+    schema = context.get("currentSchema", {})
+    base["presentation"] = {
+        "kind": "form_field_list",
+        "contractVersion": FORM_FIELD_LIST_CONTRACT,
+        "title": _text(slots.get("title") or schema.get("title"), "新表单" if _is_blank_canvas(context) else "表单字段"),
+        "layoutMode": "flow",
+        "fieldCount": len(display_fields),
+        "fields": display_fields,
+        "changes": display_changes,
     }
 
 
@@ -399,12 +538,66 @@ def _compile_form_actions(
             if client_ref in batch_refs:
                 raise ValueError(f"重复 clientRef: {client_ref}")
             batch_refs.add(client_ref)
+    if _text(slots.get("mode"), "append") != "append":
+        raise ValueError("增量动作必须使用 append，不能替换已有表单")
     base["result"] = {
         "kind": "form_actions",
-        "mode": _text(slots.get("mode"), "append"),
+        "mode": "append",
         "schemaVersion": version,
         "actions": actions,
     }
+    _project_action_fields(base, slots, actions, context)
+
+
+def _project_action_fields(
+    base: dict[str, Any], slots: Mapping[str, Any], actions: list[dict[str, Any]],
+    context: Mapping[str, Any],
+) -> None:
+    schema = context.get("currentSchema", {})
+    fields = deepcopy(schema.get("fields"))
+    canvas = context.get("canvas", {})
+    if not isinstance(fields, list) or any(not isinstance(field, Mapping) or field.get("children") or field.get("fields") for field in fields):
+        return
+    if _text(canvas.get("layoutMode") or schema.get("layoutMode"), "flow").lower() != "flow":
+        return
+    changes = []
+    for action in actions:
+        payload = action["payload"]
+        kind = action["action"]
+        if kind == "form.add_component":
+            index = _field_insertion_index(payload.get("target"), fields, context)
+            field = {key: deepcopy(payload[key]) for key in ("clientRef", "componentName", "props") if key in payload}
+            fields.insert(index, field)
+            changes.append({"operation": "insert", "index": index, "field": deepcopy(field)})
+            continue
+        if kind not in {"form.update_component", "form.update_component_options", "form.convert_component", "form.remove_component", "form.move_component"}:
+            continue
+        node_id = _target_node_id(payload, context)
+        index = next((index for index, field in enumerate(fields) if node_id in {field.get("id"), field.get("clientRef")}), None)
+        if index is None:
+            raise ValueError(f"动作引用了已删除或不存在的节点: {node_id}")
+        field = fields[index]
+        if kind == "form.remove_component":
+            fields.pop(index)
+            changes.append({"operation": "remove", "index": index, "field": deepcopy(field)})
+        elif kind == "form.move_component":
+            fields.pop(index)
+            target = payload.get("target", {})
+            destination = index if target.get("kind") == "relative" and target.get("anchorNodeId") == node_id else _field_insertion_index(target, fields, context)
+            fields.insert(destination, field)
+            changes.append({"operation": "move", "fromIndex": index, "index": destination, "field": deepcopy(field)})
+        else:
+            if kind == "form.update_component":
+                field.setdefault("props", {}).update(deepcopy(payload["changes"]))
+                if "label" in payload["changes"] and "fieldTitle" in field:
+                    field["fieldTitle"] = payload["changes"]["label"]
+            elif kind == "form.update_component_options":
+                field.setdefault("props", {})["options"] = deepcopy(payload.get("options"))
+            else:
+                # Conversion defaults and migration belong to the host, not this display snapshot.
+                return
+            changes.append({"operation": "replace", "index": index, "field": deepcopy(field)})
+    _set_field_presentation(base, slots, fields, changes, context)
 
 
 def _validate_field_name(name: str, context: Mapping[str, Any], seen_names: set[str]) -> None:
@@ -689,7 +882,7 @@ def _component_label(component: str, capabilities: Any) -> str:
     metadata = _component_catalog(capabilities).get(component, {})
     return _text(
         metadata.get("componentLabel") or metadata.get("title") or metadata.get("label"),
-        COMPONENT_LABELS[component],
+        COMPONENT_LABELS.get(component, component),
     )
 
 
@@ -722,11 +915,9 @@ def _existing_field_names(context: Mapping[str, Any]) -> set[str]:
 
 def _is_blank_canvas(context: Mapping[str, Any]) -> bool:
     canvas = context.get("canvas") if isinstance(context.get("canvas"), Mapping) else {}
-    if isinstance(canvas.get("isBlank"), bool):
-        return canvas["isBlank"]
     schema = context.get("currentSchema") if isinstance(context.get("currentSchema"), Mapping) else {}
     fields = schema.get("fields")
-    return isinstance(fields, list) and not fields
+    return isinstance(fields, list) and not fields and canvas.get("isBlank") is not False
 
 
 def _action_version(context: Mapping[str, Any]) -> str:

@@ -56,6 +56,25 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pipeline["final_contract"], self.agent.FORM_PROPOSAL_CONTRACT)
         self.assertEqual(pipeline["steps"], [self.agent.FORM_PROPOSAL_STEP])
 
+    def test_bootstrap_uses_revision_package_relative_import(self):
+        root = Path(__file__).resolve().parents[1]
+        from importlib import import_module
+
+        for package_name in ("form_revision_a", "form_revision_b"):
+            package = ModuleType(package_name)
+            package.__path__ = [str(root)]
+            with patch.dict(sys.modules, {package_name: package}):
+                bootstrap = import_module(f"{package_name}.bootstrap")
+                definition = import_module(f"{package_name}.agent_definition")
+                compiler = import_module(f"{package_name}.form_generation.proposal")
+                self.assertIs(bootstrap.register_agent, definition.register_agent)
+                self.assertIs(definition.compile_form_proposal, compiler.compile_form_proposal)
+                self.assertEqual(compiler.__package__, f"{package_name}.form_generation")
+                context = SimpleNamespace()
+                with patch.object(bootstrap, "register_agent") as register:
+                    bootstrap.register_specialized_agent(context)
+                register.assert_called_once_with(context)
+
     async def test_proposal_generation_publishes_only_final_event(self):
         proposal = {
             "protocol": "form-agent.v1", "status": "no_change", "proposalId": "proposal-test",
@@ -96,6 +115,28 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(proposal["status"], "ready")
         self.assertEqual(proposal["presentation"]["fieldCount"], 2)
         self.assertEqual(len(proposal["result"]["actions"]), 2)
+
+    async def test_saved_canvas_insertion_publishes_latest_field_list(self):
+        from test_existing_canvas import saved_context
+
+        context = SimpleNamespace(
+            inputs="在学号后新增监护人字段", context=saved_context(),
+            event_publisher=AsyncMock(),
+        )
+
+        async def generate(**kwargs):
+            return kwargs["compiler"](ir_payload=kwargs["examples"][3]["output"], context=context)
+
+        context.native_capability = SimpleNamespace(generate=generate)
+        result = await self.agent.generate_form_proposal(context)
+        proposal = result["output"]["form_proposal"]
+        self.assertEqual(proposal["schemaVersion"], "1.1.0")
+        self.assertEqual(proposal["presentation"]["fieldCount"], 8)
+        self.assertEqual(proposal["presentation"]["fields"][2]["props"]["label"], "监护人")
+        self.assertEqual(proposal["result"]["mode"], "append")
+        self.assertEqual(len(proposal["result"]["actions"]), 1)
+        self.assertEqual(context.event_publisher.await_count, 1)
+        self.assertEqual(context.event_publisher.await_args.args[1]["proposal"], proposal)
 
     def test_missing_host_context_returns_non_executable_clarification(self):
         result = self.agent.compile_platform_proposal(

@@ -1,0 +1,285 @@
+{
+  "schemaVersion": "1.1.0",
+  "id": "",
+  "layoutMode": "flow",
+  "fields": [
+    {
+      "id": "2120435848718884864",
+      "componentName": "Input",
+      "componentCategory": "field",
+      "title": "单行文本",
+      "props": {
+        "label": "姓名",
+        "required": true,
+        "placeholder": "请输入学生姓名",
+        "defaultValueConfig": "undefined",
+        "allowClear": false,
+        "showLimitHint": false,
+        "textMaxLength": 200,
+        "enableQuickCopy": false,
+        "enableLinkParser": false,
+        "format": "none",
+        "isUnique": false,
+        "enableCustomTitle": false,
+        "customTitle": "",
+        "name": "student_name",
+        "extra": "",
+        "extraType": "icon",
+        "hideTitle": false,
+        "readOnlyDisplay": false,
+        "size": "medium",
+        "access": {
+          "visible": true,
+          "editable": true,
+          "required": true,
+          "forbidManualInput": false
+        },
+        "identifiers": {
+          "name": "student_name"
+        }
+      },
+      "fieldTitle": "姓名"
+    },
+    {
+      "id": "2120435848811159552",
+      "componentName": "Input",
+      "componentCategory": "field",
+      "title": "单行文本",
+      "props": {
+        "label": "学号",
+        "required": true,
+        "placeholder": "请输入学号",
+        "defaultValueConfig": "undefined",
+        "allowClear": false,
+        "showLimitHint": false,
+        "textMaxLength": 200,
+        "enableQuickCopy": false,
+        "enableLinkParser": false,
+        "format": "none",
+        "isUnique": false,
+        "enableCustomTitle": false,
+        "customTitle": "",
+        "name": "student_no",
+        "extra": "",
+        "extraType": "icon",
+        "hideTitle": false,
+        "readOnlyDisplay": false,
+        "size": "medium",
+        "access": {
+          "visible": true,
+          "editable": true,
+          "required": true,
+          "forbidManualInput": false
+        },
+        "identifiers": {
+          "name": "student_no"
+        }
+      },
+      "fieldTitle": "学号"
+    },
+    {
+      "id": "2120435848907628544",
+      "componentName": "SelectSingle",
+      "componentCategory": "field",
+      "title": "下拉单选",
+      "props": {
+        "label": "性别",
+        "required": false,
+        "placeholder": "请选择性别",
+        "options": {
+          "dataSource": [
+            {
+              "primaryKey": "1",
+              "value": "male",
+              "label": "男",
+              "activeKey": false,
+              "disabled": false
+            },
+            {
+              "primaryKey": "2",
+              "value": "female",
+              "label": "女",
+              "activeKey": false,
+              "disabled": false
+            }
+          ],
+          "isColor": false,
+          "nextValueSeed": 3
+        },
+        "showSearch": false,
+        "allowClear": true,
+        "popupMatchSelectWidth": false,
+        "enableColor": false,
+        "enableCustomTitle": false,
+        "customTitle": "",
+        "name": "gender",
+        "extra": "",
+        "extraType": "icon",
+        "hideTitle": false,
+        "readOnlyDisplay": false,
+        "size": "medium",
+        "access": {
+          "visible": true,
+          "editable": true,
+          "required": false,
+          "forbidManualInput": false
+        },
+        "identifiers": {
+          "name": "gender"
+        }
+      },
+      "fieldTitle": "性别"
+    },
+    {
+      "id": "2120435849046040576",
+      "componentName": "DatePicker",
+      "componentCategory": "field",
+      "title": "日期",
+      "props": {
+        "label": "出生日期",
+        "required": false,
+        "placeholder": "年-月-日",
+        "defaultValueConfig": "undefined",
+        "format": "YYYY-MM-DD",
+        "allowClear": true,
+        "enableCustomTitle": false,
+        "customTitle": "",
+        "name": "birth_date",
+        "extra": "",
+        "extraType": "icon",
+        "hideTitle": false,
+        "readOnlyDisplay": false,
+        "size": "medium",
+        "access": {
+          "visible": true,
+          "editable": true,
+          "required": false,
+          "forbidManualInput": false
+        },
+        "identifiers": {
+          "name": "birth_date"
+        }
+      },
+      "fieldTitle": "出生日期"
+    },
+    {
+      "id": "2120435849167675392",
+      "componentName": "Input",
+      "componentCategory": "field",
+      "title": "单行文本",
+      "props": {
+        "label": "班级",
+        "required": false,
+        "placeholder": "请输入班级",
+        "defaultValueConfig": "undefined",
+        "allowClear": false,
+        "showLimitHint": false,
+        "textMaxLength": 200,
+        "enableQuickCopy": false,
+        "enableLinkParser": false,
+        "format": "none",
+        "isUnique": false,
+        "enableCustomTitle": false,
+        "customTitle": "",
+        "name": "class_name",
+        "extra": "",
+        "extraType": "icon",
+        "hideTitle": false,
+        "readOnlyDisplay": false,
+        "size": "medium",
+        "access": {
+          "visible": true,
+          "editable": true,
+          "required": false,
+          "forbidManualInput": false
+        },
+        "identifiers": {
+          "name": "class_name"
+        }
+      },
+      "fieldTitle": "班级"
+    },
+    {
+      "id": "2120435849280921600",
+      "componentName": "Input",
+      "componentCategory": "field",
+      "title": "单行文本",
+      "props": {
+        "label": "联系电话",
+        "required": false,
+        "placeholder": "请输入联系电话",
+        "defaultValueConfig": "undefined",
+        "allowClear": false,
+        "showLimitHint": false,
+        "textMaxLength": 200,
+        "enableQuickCopy": false,
+        "enableLinkParser": false,
+        "format": "none",
+        "isUnique": false,
+        "enableCustomTitle": false,
+        "customTitle": "",
+        "name": "phone",
+        "extra": "",
+        "extraType": "icon",
+        "hideTitle": false,
+        "readOnlyDisplay": false,
+        "size": "medium",
+        "access": {
+          "visible": true,
+          "editable": true,
+          "required": false,
+          "forbidManualInput": false
+        },
+        "identifiers": {
+          "name": "phone"
+        }
+      },
+      "fieldTitle": "联系电话"
+    },
+    {
+      "id": "2120435849381584896",
+      "componentName": "Input.TextArea",
+      "componentCategory": "field",
+      "title": "多行文本",
+      "props": {
+        "label": "备注",
+        "required": false,
+        "placeholder": "请输入备注",
+        "defaultValueConfig": "undefined",
+        "rows": 3,
+        "disableAutoHeight": false,
+        "showEmptyLines": false,
+        "showLimitHint": false,
+        "textMaxLength": 200,
+        "enableQuickCopy": false,
+        "enableLinkParser": false,
+        "enableCustomTitle": false,
+        "customTitle": "",
+        "name": "remark",
+        "extra": "",
+        "extraType": "icon",
+        "hideTitle": false,
+        "readOnlyDisplay": false,
+        "size": "medium",
+        "access": {
+          "visible": true,
+          "editable": true,
+          "required": false,
+          "forbidManualInput": false
+        },
+        "identifiers": {
+          "name": "remark"
+        }
+      },
+      "fieldTitle": "备注"
+    }
+  ],
+  "props": {
+    "description": "",
+    "columns": 2,
+    "labelPosition": "left",
+    "labelWidth": 80,
+    "textAlign": "left",
+    "rowHeight": "16px"
+  }
+}
