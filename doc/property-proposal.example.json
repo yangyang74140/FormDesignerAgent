@@ -13,7 +13,7 @@
   "requestId": "request-property-example",
   "catalogVersion": "component-properties.v1",
   "presentation": {
-    "kind": "component_property_checklist",
+    "kind": "shared.component-property-checklist",
     "title": "组件属性修改建议",
     "items": [
       {

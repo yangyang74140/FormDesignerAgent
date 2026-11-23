@@ -64,23 +64,62 @@ class PropertyIntegrationTests(IsolatedAsyncioTestCase):
         proposal = result["output"]["form_proposal"]
         self.assertEqual(proposal["status"], "ready", proposal)
         self.assertEqual(proposal["contractVersion"], "form_property_proposal.v1")
-        self.assertEqual(proposal["presentation"]["kind"], "component_property_checklist")
+        self.assertEqual(proposal["presentation"]["kind"], "shared.component-property-checklist")
         self.assertEqual(proposal["result"]["schemaVersion"], "form_property_actions.v1")
         self.assertEqual(snapshot, before)
-        context.event_publisher.assert_awaited_once()
+        self.assertEqual(set(result["output"]), {"form_proposal"})
+        context.event_publisher.assert_awaited_once_with("form.proposal.completed", {
+            "block_id": "form_proposal", "title": "表单设计提案", "status": "ready",
+            "proposal": proposal,
+        })
 
     def test_direct_mapping_context_is_supported(self):
         result = self.agent.compile_platform_proposal(self.ir(), self.context())
         self.assertEqual(result["output"]["form_proposal"]["status"], "ready", result)
 
-    def test_query_needs_no_write_action_version(self):
+    async def test_query_needs_no_write_action_version_or_component(self):
         snapshot = self.context()
         snapshot["supportedActionVersions"] = {}
-        result = self.agent.compile_platform_proposal(
-            self.ir("property_query", "form.property.query"), SimpleNamespace(context=snapshot))
+        context = SimpleNamespace(inputs="查提示文字", context=snapshot, event_publisher=AsyncMock())
+
+        async def generate(**kwargs):
+            return kwargs["compiler"](self.ir("property_query", "form.property.query"), context)
+
+        context.native_capability = SimpleNamespace(generate=generate)
+        result = await self.agent.generate_form_proposal(context)
         proposal = result["output"]["form_proposal"]
         self.assertEqual(proposal["status"], "ready", proposal)
+        self.assertEqual(proposal["presentation"]["kind"], "component_property_query")
         self.assertNotIn("result", proposal)
+        self.assertNotIn("component", result["output"])
+        context.event_publisher.assert_awaited_once_with("form.proposal.completed", {
+            "block_id": "form_proposal", "title": "表单设计提案", "status": "ready", "proposal": proposal,
+        })
+
+    async def test_undo_preserves_its_action_without_declaring_a_component(self):
+        snapshot = self.context()
+        action = "form.undo_property_transaction"
+        snapshot["capabilities"]["actions"].append(action)
+        snapshot["supportedActionVersions"][action] = ["form_property_actions.v1"]
+        snapshot["history"] = {"canUndo": True, "transactionId": "tx-1", "revision": "rev-1"}
+        context = SimpleNamespace(inputs="撤销上次属性变更", context=snapshot, event_publisher=AsyncMock())
+
+        async def generate(**kwargs):
+            return kwargs["compiler"]({"plan_items": [
+                {"capability": "proposal.begin", "slots": {"result_kind": "property_undo"}},
+                {"capability": "form.property.undo", "slots": {"transaction_id": "tx-1"}},
+            ]}, context)
+
+        context.native_capability = SimpleNamespace(generate=generate)
+        result = await self.agent.generate_form_proposal(context)
+        proposal = result["output"]["form_proposal"]
+        self.assertEqual(proposal["status"], "ready", proposal)
+        self.assertEqual(proposal["presentation"]["kind"], "component_property_undo")
+        self.assertEqual(proposal["result"]["actions"][0]["action"], action)
+        self.assertNotIn("component", result["output"])
+        context.event_publisher.assert_awaited_once_with("form.proposal.completed", {
+            "block_id": "form_proposal", "title": "表单设计提案", "status": "ready", "proposal": proposal,
+        })
 
     def test_registered_rule_removal_uses_existing_snapshot(self):
         snapshot = self.context()

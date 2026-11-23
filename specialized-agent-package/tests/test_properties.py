@@ -1,17 +1,16 @@
 """Property compiler regression tests, loaded independently of proposal imports."""
 from copy import deepcopy
-import importlib.util
-from pathlib import Path
 import unittest
 
-SPEC = importlib.util.spec_from_file_location("standalone_properties", Path(__file__).resolve().parents[1] / "form_generation" / "properties.py")
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
+from compiler_package import load_compiler_module
+
+MODULE = load_compiler_module("properties")
+COMPONENT_RULES = load_compiler_module("components")
 compile_property_proposal = MODULE.compile_property_proposal
 
 
 def host(component="Input"):
-    properties = {prop: {"operations": ["set", "clear", "unset", "reset", "copy", "query"]} for prop in MODULE._COMMON | MODULE._SPECIFIC[component]}
+    properties = {prop: {"operations": ["set", "clear", "unset", "reset", "copy", "query"]} for prop in COMPONENT_RULES.property_names(component)}
     return {
         "target": {"schemaId": "form", "revision": "r1"},
         "canvas": {"layoutMode": "flow", "device": "pc"},
@@ -337,6 +336,91 @@ class PropertyTests(unittest.TestCase):
         context = host()
         context["capabilities"]["components"]["Input"]["properties"]["placeholder"]["valueSchema"] = {"type": "string", "not": {"const": "x"}}
         self.rejected(run([change()], context), "UNSUPPORTED_VALUE_SCHEMA")
+
+    def test_component_registry_separates_generation_and_property_support(self):
+        self.assertEqual(COMPONENT_RULES.FLOW_COMPONENTS, ("Input", "Input.TextArea", "DatePicker", "TimePicker", "NumberPicker", "SelectSingle", "SelectMulti", "CheckboxGroup", "Switch"))
+        self.assertEqual(COMPONENT_RULES.OPTION_COMPONENTS, {"SelectSingle", "SelectMulti", "CheckboxGroup"})
+        self.assertEqual(set(COMPONENT_RULES.COMPONENT_LABELS), set(COMPONENT_RULES.FLOW_COMPONENTS))
+        self.assertEqual(COMPONENT_RULES.PROPERTY_COMPONENTS, MODULE.COMPONENTS)
+        for component in ("CheckboxGroup", "Switch"):
+            with self.subTest(component=component):
+                with self.assertRaises(KeyError):
+                    COMPONENT_RULES.property_names(component)
+                context = host()
+                context["currentSchema"]["fields"][0]["componentName"] = component
+                self.rejected(run([change()], context), "UNSUPPORTED_COMPONENT")
+
+    def test_composed_family_rules_keep_specific_overrides_and_detach_metadata(self):
+        rules = COMPONENT_RULES.get_component_rules("Input")
+        self.assertIn("textLengthLimit", COMPONENT_RULES.property_names("Input.TextArea"))
+        self.assertNotIn("formatValidation", COMPONENT_RULES.property_names("Input.TextArea"))
+        self.assertNotIn("allowClear", COMPONENT_RULES.property_names("SelectMulti"))
+        self.assertNotIn("disabledDays", COMPONENT_RULES.property_names("TimePicker"))
+        self.assertNotIn("minuteStep", COMPONENT_RULES.property_names("DatePicker"))
+        input_format = rules.intrinsic_schema("format")
+        date_format = COMPONENT_RULES.get_component_rules("DatePicker").intrinsic_schema("format")
+        time_format = COMPONENT_RULES.get_component_rules("TimePicker").intrinsic_schema("format")
+        self.assertIn("email", input_format["enum"])
+        self.assertNotIn("email", date_format["enum"])
+        self.assertIn("YYYY", date_format["enum"])
+        self.assertNotIn("YYYY", time_format["enum"])
+        input_format["enum"].clear()
+        rules.properties["size"].schema["enum"].clear()
+        rules.properties.clear()
+        self.assertIn("email", COMPONENT_RULES.get_component_rules("Input").intrinsic_schema("format")["enum"])
+        for component in ("Input", "Input.TextArea"):
+            self.assertEqual(COMPONENT_RULES.get_component_rules(component).intrinsic_schema("size")["enum"], ["small", "medium", "large"])
+
+    def test_temporal_range_branches_and_final_format_dependencies(self):
+        context = host("TimePicker")
+        context["currentSchema"]["fields"][0]["props"]["format"] = "HH:mm:ss"
+        condition_schema = {"type": ["object", "null"], "properties": {
+            "enabled": {"type": "boolean"}, "source": {"type": "string"},
+            "fixedValue": {"type": "string"}, "dynamicMode": {"type": "string"},
+            "dynamicUnit": {"type": "string"}, "offsetValue": {"type": "number"},
+        }, "required": ["enabled", "source"], "additionalProperties": False}
+        for prop in ("minTimeCondition", "maxTimeCondition"):
+            context["capabilities"]["components"]["TimePicker"]["properties"][prop].update(handlerId="time-range", valueSchema=condition_schema)
+        current = {"enabled": True, "source": "dynamic", "dynamicMode": "current"}
+        self.assertEqual(run([change("minTimeCondition", current)], context)["status"], "ready")
+        offset = {**current, "dynamicMode": "after", "dynamicUnit": "day", "offsetValue": 1}
+        self.rejected(run([change("minTimeCondition", offset)], context), "INVALID_TIME_CONDITION")
+        lower = {"enabled": True, "source": "fixed", "fixedValue": "12:00:00"}
+        upper = {**lower, "fixedValue": "11:00:00"}
+        self.rejected(run([change("minTimeCondition", lower), change("maxTimeCondition", upper)], context), "INVALID_RANGE")
+        date = host("DatePicker")
+        date["currentSchema"]["fields"][0]["props"]["format"] = "YYYY-MM-DD"
+        default = change("defaultValue", {"mode": "custom", "value": "2026-11"})
+        self.rejected(run([default, change("format", "YYYY-MM", selected=False)], date), "SELECTION_DEPENDENCY", "needs_clarification")
+
+    def test_choice_option_identity_and_relations_survive_family_helpers(self):
+        context = host("SelectSingle")
+        option = {"primaryKey": "pk", "value": "business", "label": "名称", "activeKey": False, "disabled": False}
+        context["currentSchema"]["fields"][0]["props"]["options"] = {"dataSource": [option], "relatedParentField": {"parentFieldName": "parent"}}
+        option_schema = {"type": "object", "properties": {
+            "primaryKey": {"type": "string"}, "value": {"type": "string"},
+            "label": {"type": "string"}, "activeKey": {"type": "boolean"}, "disabled": {"type": "boolean"},
+        }, "required": ["primaryKey", "value", "activeKey", "disabled"], "additionalProperties": False}
+        options_schema = {"type": "object", "properties": {
+            "dataSource": {"type": "array", "items": option_schema}, "isColor": {"type": "boolean"},
+            "relatedParentField": {"type": "object", "properties": {"parentFieldName": {"type": "string"}}, "required": ["parentFieldName"], "additionalProperties": False},
+        }, "required": ["dataSource"], "additionalProperties": False}
+        context["capabilities"]["components"]["SelectSingle"]["properties"]["options"].update(handlerId="options", valueSchema=options_schema)
+        value = {"dataSource": [{**option, "activeKey": True}], "isColor": True, "relatedParentField": {"parentFieldName": "parent"}}
+        before = deepcopy(context)
+        result = run([change("options", value), change("defaultValue", "business")], context)
+        self.assertEqual(result["status"], "ready", result)
+        self.assertEqual(context, before)
+        rows = result["presentation"]["items"]
+        self.assertEqual(rows[1]["dependsOn"], [rows[0]["changeId"]])
+        self.assertIn("颜色", rows[0]["effects"][0])
+        removed = {**value, "dataSource": []}
+        self.rejected(run([change("options", removed)], context), "OPTION_REFERENCE_CHECK_REQUIRED")
+        renamed = deepcopy(value)
+        renamed["dataSource"][0]["value"] = "new-business"
+        self.rejected(run([change("options", renamed)], context), "OPTION_IDENTITY_CHANGED")
+        lost_relation = {"dataSource": value["dataSource"]}
+        self.rejected(run([change("options", lost_relation)], context), "OPTION_RELATION_CHANGED")
 
     def test_native_capability_schema_fresh_and_complete(self):
         definitions = MODULE.property_capabilities()

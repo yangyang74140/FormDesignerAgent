@@ -1,16 +1,13 @@
 """Regression tests for the capability-aware form-agent.v1 proposal compiler."""
 
-import importlib.util
-from pathlib import Path
+from copy import deepcopy
 from types import SimpleNamespace
 import unittest
 
+from compiler_package import load_compiler_module
 
-ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("form_proposal", ROOT / "form_generation" / "proposal.py")
-proposal = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-SPEC.loader.exec_module(proposal)
+
+proposal = load_compiler_module("proposal")
 
 
 def host_context(**overrides):
@@ -30,9 +27,9 @@ def host_context(**overrides):
         "canvas": {"layoutMode": "flow", "device": "pc", "isBlank": False},
         "capabilities": {
             "components": [
-                {"componentName": "Input"},
-                {"componentName": "SelectSingle"},
-                {"componentName": "CheckboxGroup"},
+                {"componentName": "Input", "writableProps": ["label", "name", "required", "placeholder"]},
+                {"componentName": "SelectSingle", "writableProps": ["label", "name", "required", "options"]},
+                {"componentName": "CheckboxGroup", "writableProps": ["label", "name", "required", "options"]},
                 {"componentName": "Tabs"},
             ],
             "actions": list(proposal.ACTION_KINDS),
@@ -70,6 +67,55 @@ class FormProposalCompilerTests(unittest.TestCase):
         self.assertEqual(len(result["result"]["actions"]), 3)
         self.assertTrue(result["proposalId"].startswith("proposal-"))
 
+    def test_incremental_add_preserves_snake_case_client_ref(self):
+        result = compile_items([
+            {"capability": "proposal.begin", "slots": {"summary": "添加学号", "result_kind": "form_actions"}},
+            {"capability": "form.add_component", "slots": {"payload": {
+                "clientRef": "student_no", "componentName": "Input", "props": {"label": "学号"},
+                "target": {"kind": "relative", "anchorNodeId": "reason", "position": "after"},
+            }}},
+        ])
+        self.assertEqual(result["status"], "ready")
+        self.assertEqual(result["result"]["actions"][0]["payload"]["clientRef"], "student_no")
+        self.assertEqual(result["presentation"]["fields"][1]["clientRef"], "student_no")
+
+    def test_action_declarations_are_isolated_between_runs(self):
+        first = proposal.proposal_capabilities()
+        action = next(item for item in first if item["capability"] == "form.add_component")
+        action["slots_schema"]["properties"]["payload"]["type"] = "string"
+        second = next(item for item in proposal.proposal_capabilities() if item["capability"] == "form.add_component")
+        self.assertEqual(second["slots_schema"]["properties"]["payload"], {"type": "object"})
+        self.assertEqual(len({item["capability"] for item in first}), len(first))
+
+    def test_component_lifecycle_actions_preserve_order_and_host_snapshot(self):
+        context = host_context()
+        before = deepcopy(context.context)
+        result = compile_items([
+            {"capability": "proposal.begin", "slots": {"summary": "调整字段", "result_kind": "form_actions"}},
+            {"capability": "form.update_component_options", "slots": {"payload": {
+                "nodeId": "draft-choice", "options": [{"label": "新项", "value": "new"}],
+            }}},
+            {"capability": "form.move_component", "slots": {"payload": {
+                "nodeId": "draft-choice", "target": {"kind": "root", "index": 0},
+            }}},
+            {"capability": "form.remove_component", "slots": {"payload": {"nodeId": "reason"}}},
+        ], context)
+        self.assertEqual([field["id"] for field in result["presentation"]["fields"]], ["draft-choice", "section"])
+        self.assertEqual(result["presentation"]["fields"][0]["props"]["options"][0]["value"], "new")
+        self.assertEqual(context.context, before)
+
+    def test_action_references_only_accept_prior_new_fields(self):
+        begin = {"capability": "proposal.begin", "slots": {"summary": "新增并设置校验", "result_kind": "form_actions"}}
+        add = {"capability": "form.add_component", "slots": {"payload": {
+            "clientRef": "note", "componentName": "Input", "props": {"label": "备注"}, "target": {"kind": "root"},
+        }}}
+        rule = {"capability": "form.set_validation", "slots": {"payload": {
+            "fieldRef": "note", "validatorName": "required",
+        }}}
+        self.assertEqual(compile_items([begin, add, rule])["status"], "ready")
+        with self.assertRaisesRegex(ValueError, "悬空引用"):
+            compile_items([begin, rule, add])
+
     def test_clarification_has_no_executable_result(self):
         result = compile_items([{"capability": "proposal.needs_clarification", "slots": {
             "summary": "多选转单选会丢失默认值。",
@@ -101,21 +147,25 @@ class FormProposalCompilerTests(unittest.TestCase):
 
     def test_action_must_be_declared_by_host(self):
         context = host_context(capabilities={"components": [{"componentName": "Input"}], "actions": ["form.update_component"]})
-        with self.assertRaisesRegex(ValueError, "未声明支持动作"):
-            compile_items([
-                {"capability": "proposal.begin", "slots": {"summary": "添加字段", "result_kind": "form_actions"}},
-                {"capability": "form.add_component", "slots": {"payload": {
-                    "clientRef": "note", "componentName": "Input", "target": {"kind": "root"},
-                }}},
-            ], context)
+        result = compile_items([
+            {"capability": "proposal.begin", "slots": {"summary": "添加字段", "result_kind": "form_actions"}},
+            {"capability": "form.add_component", "slots": {"payload": {
+                "clientRef": "note", "componentName": "Input", "target": {"kind": "root"},
+            }}},
+        ], context)
+        self.assertEqual(result["status"], "unsupported")
+        self.assertIn("未声明支持动作", result["summary"])
+        self.assertNotIn("result", result)
 
     def test_actions_require_version_and_capability_catalog(self):
         context = host_context(supportedActionVersions=[])
-        with self.assertRaisesRegex(ValueError, "supportedActionVersions"):
-            compile_items([
-                {"capability": "proposal.begin", "slots": {"summary": "更新字段", "result_kind": "form_actions"}},
-                {"capability": "form.update_component", "slots": {"payload": {"fieldId": "reason", "changes": {"required": True}}}},
-            ], context)
+        result = compile_items([
+            {"capability": "proposal.begin", "slots": {"summary": "更新字段", "result_kind": "form_actions"}},
+            {"capability": "form.update_component", "slots": {"payload": {"fieldId": "reason", "changes": {"required": True}}}},
+        ], context)
+        self.assertEqual(result["status"], "unsupported")
+        self.assertIn("supportedActionVersions", result["summary"])
+        self.assertNotIn("result", result)
 
     def test_conversion_only_accepts_explicitly_unsaved_field(self):
         ready = compile_items([
@@ -165,7 +215,7 @@ class FormProposalCompilerTests(unittest.TestCase):
 
     def test_mapping_catalogs_are_supported(self):
         context = host_context(capabilities={
-            "components": {"Input": {"category": "field"}},
+            "components": {"Input": {"category": "field", "writableProps": ["label", "name"]}},
             "actions": {"form.add_component": {"version": "form_actions.v2"}},
         })
         result = compile_items([
@@ -205,13 +255,15 @@ class FormProposalCompilerTests(unittest.TestCase):
             "components": [{"componentName": "Input", "writableProps": ["label"]}],
             "actions": ["form.update_component"],
         })
-        with self.assertRaisesRegex(ValueError, "不可写属性"):
-            compile_items([
-                {"capability": "proposal.begin", "slots": {"summary": "设为必填", "result_kind": "form_actions"}},
-                {"capability": "form.update_component", "slots": {"payload": {
-                    "fieldId": "reason", "changes": {"required": True},
-                }}},
-            ], context)
+        result = compile_items([
+            {"capability": "proposal.begin", "slots": {"summary": "设为必填", "result_kind": "form_actions"}},
+            {"capability": "form.update_component", "slots": {"payload": {
+                "fieldId": "reason", "changes": {"required": True},
+            }}},
+        ], context)
+        self.assertEqual(result["status"], "unsupported")
+        self.assertIn("不可写属性", result["summary"])
+        self.assertNotIn("result", result)
 
     def test_container_and_grid_targets_are_out_of_scope(self):
         for target in (

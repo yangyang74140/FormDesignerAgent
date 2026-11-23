@@ -85,7 +85,7 @@ class FormFieldListTests(unittest.TestCase):
         self.assertEqual(result["presentation"]["contractVersion"], "form_field_list.v1")
         self.assertEqual(result["schemaVersion"], "1.0.0")
         self.assertEqual(result["requestId"], "req-onboarding")
-        self.assertEqual(result["presentation"]["kind"], "form_field_list")
+        self.assertEqual(result["presentation"]["kind"], "shared.table-field-confirm")
         self.assertEqual(result["result"]["mode"], "replace_empty_form")
         self.assertEqual(len(result["presentation"]["fields"]), 9)
         self.assertEqual(len(result["result"]["actions"]), 9)
@@ -105,12 +105,24 @@ class FormFieldListTests(unittest.TestCase):
         for mutation, message in (
             ({"canvas": {"layoutMode": "grid", "isBlank": True}}, "flow"),
             ({"canvas": {"layoutMode": "flow", "isBlank": False}}, "空白"),
-            ({"schemaVersion": "2.0.0"}, "Schema 1.0.0"),
         ):
             context = blank_context()
             context.update(mutation)
             with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, message):
                 compile_fields([field], context)
+
+    def test_schema_version_is_metadata_not_a_generation_gate(self):
+        field = {"client_ref": "name", "component_name": "Input", "label": "姓名", "name": "name"}
+        for version in ("2.0.0", "custom-schema", "", None):
+            context = blank_context()
+            context["schemaVersion"] = version
+            context["currentSchema"]["schemaVersion"] = version
+            with self.subTest(version=version):
+                result = compile_fields([field], context)
+                self.assertEqual(result["status"], "ready")
+                self.assertEqual(result["presentation"]["fieldCount"], 1)
+                if version:
+                    self.assertEqual(result["schemaVersion"], version)
 
     def test_field_name_client_ref_and_option_rules_are_enforced(self):
         base = {"client_ref": "choice", "component_name": "SelectSingle", "label": "类型", "name": "type"}
@@ -131,6 +143,20 @@ class FormFieldListTests(unittest.TestCase):
             compile_fields([first, {**first, "name": "other"}])
         with self.assertRaisesRegex(ValueError, "字段 name 重复"):
             compile_fields([first, {**first, "client_ref": "field-two"}])
+
+    def test_client_refs_accept_snake_case_and_kebab_case_without_rewriting(self):
+        refs = ["student_no", "student-name", "student_home-address2"]
+        fields = [{
+            "client_ref": ref, "component_name": "Input", "label": f"字段 {index}", "name": f"field_{index}",
+        } for index, ref in enumerate(refs)]
+        result = compile_fields(fields)
+        self.assertEqual([field["clientRef"] for field in result["presentation"]["fields"]], refs)
+        self.assertEqual([action["payload"]["clientRef"] for action in result["result"]["actions"]], refs)
+        with self.assertRaisesRegex(ValueError, "重复 clientRef"):
+            compile_fields([fields[0], {**fields[0], "name": "another_name"}])
+        for ref in ("", "Student_no", "1student", "student no", "student.no", "学生", "student/no"):
+            with self.subTest(ref=ref), self.assertRaisesRegex(ValueError, "clientRef"):
+                compile_fields([{**fields[0], "client_ref": ref}])
 
     def test_non_option_component_rejects_options(self):
         with self.assertRaisesRegex(ValueError, "不支持 options"):

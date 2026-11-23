@@ -1,7 +1,12 @@
 # 组件属性修改：ai-chat、设计器宿主接入待办与 Agent 输出协议
 
-日期：2026-11-18  
-协议状态：**三端接入契约**。Agent 1.2.0 已增加受控属性编译路径；ai-chat、设计器宿主仍需完成下列接入，不能直接交给旧解析器执行。实际 Agent 输入示例见 [property-context.example.json](./property-context.example.json)，Agent 包的功能与限制见 [README](../specialized-agent-package/README.md)。下列待办按三端整体交付列出，不表示 Agent 实现后宿主执行器也已就绪。
+日期：2026-11-18；单提案展示契约更新：2026-11-20。
+
+协议状态：**三端接入契约**。Agent 1.2.0 已增加受控属性编译路径；本次目标版本为 1.2.10，用户已批准单 `form_proposal` 输出与注册组件 kind。ai-chat 和设计器宿主须同时兼容新旧 kind，验证结果由本次实施任务记录。实际 Agent 输入示例见 [property-context.example.json](./property-context.example.json)，Agent 包的功能与限制见 [README](../specialized-agent-package/README.md)。下列待办保留原三端整体交付清单，不将历史未勾选项或 Agent 能力声明视为宿主已部署。
+
+Agent 已收紧组件与属性能力缺失处理：目录缺失、空可写属性或未知属性返回 unsupported，summary/diagnostics 提供具体原因，不交付部分动作或可应用卡片。例如“禁用的姓名字段”在禁用语义及写入规则未声明时，说明“姓名可使用 Input，但暂时还不支持禁用”；不猜 disabled 或权限替代配置。ai-chat 应展示拒绝原因，宿主仍须验证最终动作；真实模型的语义识别与三端事件透传仍需平台验收。
+
+Agent 包内业务规则入口：[动作规范](../specialized-agent-package/specs/actions.md)、[属性规则](../specialized-agent-package/specs/properties.md)、[组件目录](../specialized-agent-package/specs/components/README.md)。本次模块分层保持当前编译格式；根目录 AGENTS.md 已确认的单一 actions 草稿目标尚未在本次实施，本文现有 fields/items/result.actions 接入描述仍指当前路径。
 
 参考：[七类组件属性数据与 Agent 接入边界](./component-property-inventory.md)。宿主现状依据该清单记录的核验结果；实施前应结合宿主最新源码复核。
 
@@ -45,20 +50,20 @@ flowchart TD
     G --> H[回执、画布刷新、最新上下文]
 ```
 
-复用现有 `form-agent.v1` 信封和 `form.proposal.completed` 事件名；新增：
+复用现有 `form-agent.v1` 协议和 `form.proposal.completed` 事件名。用户于 2026-11-20 批准的展示契约为：
 
-- `contractVersion = form_property_proposal.v1`
-- `presentation.kind = component_property_checklist`
-- `result.schemaVersion = form_property_actions.v1`
-- `action = form.apply_property_change`
+- 子 Agent 逻辑最终 output 仅为 `{ form_proposal: proposal }`，不附加 `component` 或复制 `props.proposal`。
+- 属性修改保留 `contractVersion = form_property_proposal.v1`，使用 `presentation.kind = shared.component-property-checklist`，完整保留 items、标题、before/after、依赖和 actionIds。
+- 字段列表使用 `presentation.kind = shared.table-field-confirm`，完整保留领域 fields/changes、选项和快照。
+- `result.schemaVersion = form_property_actions.v1`、`action = form.apply_property_change`、全部 `result.actions/target/validation` 与原协议保持一致。
 
-这些版本字符串属于建议命名。两端应先协商支持版本；旧的 `form_field_list`、`form_actions` 路径继续按原契约处理。这里的 `append` 表示增量应用，不表示将卡片列表或字段列表追加到旧列表。
+ai-chat 在完整 JSON、ready 状态、领域契约、kind 匹配及注册/业务白名单校验后，本地投影到已有组件 Props；原提案只传一份，不根据展示行重建动作。无效、未知或字段/属性错配 kind 不渲染确认卡，非 ready、只读查询、撤销或失败不因 kind 获得应用资格。旧 `form_field_list`、`component_property_checklist` 由 ai-chat 与宿主类型/校验器继续接受；历史有效显式 component 仍优先，显式存在但无效时不降级。这里的 `append` 表示增量应用，不表示将卡片列表或字段列表追加到旧列表。
 
 ## 3. ai-chat 待办清单
 
 ### P0：属性勾选闭环
 
-- [ ] 按 `contractVersion` 和 `presentation.kind` 路由到新的属性卡片，未知版本显示不支持，不尝试旧解析器兜底。
+- [ ] 按 `contractVersion` 和 `presentation.kind` 校验并投影到已有属性卡片，兼容注册 kind 与旧 kind；未知协议、无效或错配 kind 不渲染，不尝试其他卡片兜底。
 - [ ] 校验完整 JSON、状态、必填字段、唯一 ID、change/action 对应关系及支持的动作版本。
 - [ ] 实现卡片标题、逐项复选框、全选/半选、应用按钮、换一换及状态提示。
 - [ ] `selectedByDefault` 仅用于初始化；后续重渲染不覆盖用户手动勾选。
@@ -187,7 +192,7 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
 
 ## 7. Agent 最终输出 JSON 示例
 
-这是**最终产物**，不是模型中间 IR。场景：调整“申请说明”的占位提示、默认值、必填、尺寸及标题对齐继承。示例 before 假定来自生成时快照；实际数据必须由编译器读取。
+下面展示最终 output 中唯一 `form_proposal` 的完整内层对象，不是模型中间 IR；步骤输出为 `{ form_proposal: 下述对象 }`，不再另包 component。场景：调整“申请说明”的占位提示、默认值、必填、尺寸及标题对齐继承。示例 before 假定来自生成时快照；实际数据必须由编译器读取。
 
 ```json
 {
@@ -205,7 +210,7 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
   "summary": "调整申请说明字段的属性。",
   "diagnostics": [],
   "presentation": {
-    "kind": "component_property_checklist",
+    "kind": "shared.component-property-checklist",
     "title": "是否将申请说明字段的属性设置为：",
     "items": [
       {
@@ -336,7 +341,7 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
 
 ### 7.1 必须共同实现的约束
 
-- `schemaVersion` 是画布 Schema 版本；`result.schemaVersion` 是动作协议版本，两者不能混用。
+- 顶层 `schemaVersion` 是可选的画布 Schema 元数据，不设白名单；`result.schemaVersion` 是必须校验的动作协议版本，两者不能混用。
 - 本版限定一行对应一个语义动作，即 actionIds 长度为 1；复合属性的多个底层效果全部封装在处理器内。
 - changeId、actionId 各自唯一；每个动作恰好属于一行，禁止存在未展示动作或复用动作。
 - changeId 在同一个 proposal 中稳定；换一换生成新 proposal，不依靠旧 changeId 复用授权。
@@ -348,7 +353,7 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
 
 ## 8. 流式交付约定
 
-建议最终业务事件载荷如下；proposal 位置放第 7 节完整 JSON 对象。
+保留原最终业务事件载荷如下；proposal 位置放第 7 节完整 JSON 对象，不追加 component 或第二份提案。
 
 ```json
 {
@@ -365,7 +370,7 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
 
 这里的空对象仅为位置说明，生产事件必须包含完整 proposal。eventId 可以位于平台 SSE 的 id 字段，按实际传输协议统一，不要求平台同时重复包装 event 字段。
 
-原始 token 不直接当成卡片 JSON 使用。需要逐行预览时可另定义非执行预览事件，最终完整事件仍为唯一可应用依据。平台是否支持业务事件透传、重放和补发需要联调验证。
+原始 token 不直接当成卡片 JSON 使用，片段完整前不提供可执行卡片。完整文本 JSON、`specialized_state.update` 快照、标准 `pipeline.step.output.completed` 的 content/output、自定义业务事件及历史回放共用同一提案校验和去重；`form_proposal_generation` / `form.proposal.generate`、现有事件键与顺序保持不变，不新增逐字段事件。每个逻辑载荷仅含一次完整 proposal，多通道到达按 proposalId 去重，渲染不触发应用。平台业务事件透传、持久化、重放和断线补发仍需联调验证。
 
 ## 9. ai-chat 应用请求
 

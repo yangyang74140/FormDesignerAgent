@@ -1549,6 +1549,7 @@ curl -G "$BASE_URL/openapi/v1/services/svc_xxx/conversations" \
 | `items[].created_at` | `string` | 否 | 北京时间 ISO 8601 时间，包含 +08:00 时区。 |
 | `items[].content_parts` | `array` | 否 | 持久化文本/附件片段，按 sort_order 排列；旧消息可能为空，使用 content 展示。 |
 | `items[].content_parts[].attachment` | `object \| null` | 否 | 同消息、未删除附件的 attachment_id、message_id、file_name、mime_type、size_bytes；不可用时为 null，不包含下载链接。 |
+| `items[].answered_clarifications` | `array` | 否 | 助手消息对应 Run 的已完成澄清记录；包含澄清问题、冻结选项、用户实际回答和回答时间。每个 Run 最多返回最近 50 组；仅用于历史回看，不提供恢复操作。 |
 | `total` | `integer` | 否 | 过滤后的消息总数；不含 system/tool 和 retried 消息。 |
 | `page / size` | `integer` | 否 | 当前页码和每页数量。 |
 
@@ -1571,6 +1572,7 @@ curl -G "$BASE_URL/openapi/v1/conversations/conv_xxx/messages" \
 - 接口只读，不补写或修复历史归属；返回统一信封，下面列出的是 data 内字段。
 - 即使已知 conversation_id，也要传当前用户身份；后端会重新校验调用应用、服务授权及会话归属。不存在、已删除或无权访问统一返回 404 RESOURCE_NOT_FOUND_OR_FORBIDDEN。
 - 不返回系统提示词、工具消息、内部思考、工具参数、原始运行事件或存储路径；本接口用于聊天回放，实时进度仍使用 Run stream/events。
+- answered_clarifications 用于回看澄清过程：单题包含 question/options/answer，问题组包含 group.questions 及每题 options；不进入模型历史，也不能通过历史接口提交或修改回答。
 - 正在生成的 assistant 消息可能尚未完成，status 和 content 以本次查询时的数据库状态为准。
 
 ## GET /openapi/v1/runs/{run_id}

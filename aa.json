@@ -1,0 +1,486 @@
+{
+    "event_id": "93bb8e3b-0df1-42a8-aa81-dbce47e9c506",
+    "run_id": "b6fb0e57-5152-4b33-be9c-a4d13017ee2f",
+    "service_id": "d5407187-509b-455f-a9cc-4a3edc1a9adf",
+    "event_type": "pipeline.step.output.completed",
+    "block_id": "specialized_pipeline_output:b6fb0e57-5152-4b33-be9c-a4d13017ee2f:form_proposal_generation:form.proposal.generate",
+    "payload": {
+      "run_id": "b6fb0e57-5152-4b33-be9c-a4d13017ee2f",
+      "pipeline_key": "form_proposal_generation",
+      "step_key": "form.proposal.generate",
+      "block_id": "specialized_pipeline_output:b6fb0e57-5152-4b33-be9c-a4d13017ee2f:form_proposal_generation:form.proposal.generate",
+      "delta": "",
+      "content": {
+        "form_proposal": {
+          "protocol": "form-agent.v1",
+          "contractVersion": "form_agent_proposal.v1",
+          "schemaVersion": "1.1.0",
+          "status": "ready",
+          "proposalId": "proposal-2a18d008f03939a6",
+          "target": {
+            "schemaId": "2123587292588277762",
+            "appId": "2083038495270350850",
+            "formId": "2123587288213618688",
+            "layoutId": "2123587292588277762",
+            "baseRevision": "rev-fld_qpSPXDnJ-2"
+          },
+          "summary": "创建一份学生信息表，包含基本身份、学籍、联系方式和监护人信息。",
+          "diagnostics": [],
+          "requestId": "request-fld_cSLv-YGS",
+          "presentation": {
+            "kind": "shared.table-field-confirm",
+            "contractVersion": "form_field_list.v1",
+            "title": "学生信息表",
+            "layoutMode": "flow",
+            "fieldCount": 10,
+            "fields": [
+              {
+                "clientRef": "student-no",
+                "componentName": "Input",
+                "componentLabel": "单行文本",
+                "props": {
+                  "label": "学号",
+                  "name": "student_no",
+                  "required": true,
+                  "placeholder": "请输入学号"
+                }
+              },
+              {
+                "clientRef": "student-name",
+                "componentName": "Input",
+                "componentLabel": "单行文本",
+                "props": {
+                  "label": "姓名",
+                  "name": "student_name",
+                  "required": true,
+                  "placeholder": "请输入姓名"
+                }
+              },
+              {
+                "clientRef": "gender",
+                "componentName": "SelectSingle",
+                "componentLabel": "下拉单选",
+                "props": {
+                  "label": "性别",
+                  "name": "gender",
+                  "required": true,
+                  "placeholder": "请选择性别",
+                  "options": [
+                    { "label": "男", "value": "male" },
+                    { "label": "女", "value": "female" }
+                  ]
+                }
+              },
+              {
+                "clientRef": "birth-date",
+                "componentName": "DatePicker",
+                "componentLabel": "日期",
+                "props": {
+                  "label": "出生日期",
+                  "name": "birth_date",
+                  "required": false,
+                  "placeholder": "请选择出生日期"
+                }
+              },
+              {
+                "clientRef": "class-name",
+                "componentName": "Input",
+                "componentLabel": "单行文本",
+                "props": {
+                  "label": "班级",
+                  "name": "class_name",
+                  "required": true,
+                  "placeholder": "请输入班级"
+                }
+              },
+              {
+                "clientRef": "enrollment-date",
+                "componentName": "DatePicker",
+                "componentLabel": "日期",
+                "props": {
+                  "label": "入学日期",
+                  "name": "enrollment_date",
+                  "required": false,
+                  "placeholder": "请选择入学日期"
+                }
+              },
+              {
+                "clientRef": "phone",
+                "componentName": "Input",
+                "componentLabel": "单行文本",
+                "props": {
+                  "label": "联系电话",
+                  "name": "phone",
+                  "required": false,
+                  "placeholder": "请输入联系电话"
+                }
+              },
+              {
+                "clientRef": "address",
+                "componentName": "Input.TextArea",
+                "componentLabel": "多行文本",
+                "props": {
+                  "label": "家庭住址",
+                  "name": "address",
+                  "required": false,
+                  "placeholder": "请输入家庭住址"
+                }
+              },
+              {
+                "clientRef": "guardian-name",
+                "componentName": "Input",
+                "componentLabel": "单行文本",
+                "props": {
+                  "label": "监护人姓名",
+                  "name": "guardian_name",
+                  "required": false,
+                  "placeholder": "请输入监护人姓名"
+                }
+              },
+              {
+                "clientRef": "guardian-phone",
+                "componentName": "Input",
+                "componentLabel": "单行文本",
+                "props": {
+                  "label": "监护人电话",
+                  "name": "guardian_phone",
+                  "required": false,
+                  "placeholder": "请输入监护人电话"
+                }
+              }
+            ],
+            "changes": [
+              {
+                "operation": "insert",
+                "index": 0,
+                "field": {
+                  "clientRef": "student-no",
+                  "componentName": "Input",
+                  "componentLabel": "单行文本",
+                  "props": {
+                    "label": "学号",
+                    "name": "student_no",
+                    "required": true,
+                    "placeholder": "请输入学号"
+                  }
+                }
+              },
+              {
+                "operation": "insert",
+                "index": 1,
+                "field": {
+                  "clientRef": "student-name",
+                  "componentName": "Input",
+                  "componentLabel": "单行文本",
+                  "props": {
+                    "label": "姓名",
+                    "name": "student_name",
+                    "required": true,
+                    "placeholder": "请输入姓名"
+                  }
+                }
+              },
+              {
+                "operation": "insert",
+                "index": 2,
+                "field": {
+                  "clientRef": "gender",
+                  "componentName": "SelectSingle",
+                  "componentLabel": "下拉单选",
+                  "props": {
+                    "label": "性别",
+                    "name": "gender",
+                    "required": true,
+                    "placeholder": "请选择性别",
+                    "options": [
+                      { "label": "男", "value": "male" },
+                      { "label": "女", "value": "female" }
+                    ]
+                  }
+                }
+              },
+              {
+                "operation": "insert",
+                "index": 3,
+                "field": {
+                  "clientRef": "birth-date",
+                  "componentName": "DatePicker",
+                  "componentLabel": "日期",
+                  "props": {
+                    "label": "出生日期",
+                    "name": "birth_date",
+                    "required": false,
+                    "placeholder": "请选择出生日期"
+                  }
+                }
+              },
+              {
+                "operation": "insert",
+                "index": 4,
+                "field": {
+                  "clientRef": "class-name",
+                  "componentName": "Input",
+                  "componentLabel": "单行文本",
+                  "props": {
+                    "label": "班级",
+                    "name": "class_name",
+                    "required": true,
+                    "placeholder": "请输入班级"
+                  }
+                }
+              },
+              {
+                "operation": "insert",
+                "index": 5,
+                "field": {
+                  "clientRef": "enrollment-date",
+                  "componentName": "DatePicker",
+                  "componentLabel": "日期",
+                  "props": {
+                    "label": "入学日期",
+                    "name": "enrollment_date",
+                    "required": false,
+                    "placeholder": "请选择入学日期"
+                  }
+                }
+              },
+              {
+                "operation": "insert",
+                "index": 6,
+                "field": {
+                  "clientRef": "phone",
+                  "componentName": "Input",
+                  "componentLabel": "单行文本",
+                  "props": {
+                    "label": "联系电话",
+                    "name": "phone",
+                    "required": false,
+                    "placeholder": "请输入联系电话"
+                  }
+                }
+              },
+              {
+                "operation": "insert",
+                "index": 7,
+                "field": {
+                  "clientRef": "address",
+                  "componentName": "Input.TextArea",
+                  "componentLabel": "多行文本",
+                  "props": {
+                    "label": "家庭住址",
+                    "name": "address",
+                    "required": false,
+                    "placeholder": "请输入家庭住址"
+                  }
+                }
+              },
+              {
+                "operation": "insert",
+                "index": 8,
+                "field": {
+                  "clientRef": "guardian-name",
+                  "componentName": "Input",
+                  "componentLabel": "单行文本",
+                  "props": {
+                    "label": "监护人姓名",
+                    "name": "guardian_name",
+                    "required": false,
+                    "placeholder": "请输入监护人姓名"
+                  }
+                }
+              },
+              {
+                "operation": "insert",
+                "index": 9,
+                "field": {
+                  "clientRef": "guardian-phone",
+                  "componentName": "Input",
+                  "componentLabel": "单行文本",
+                  "props": {
+                    "label": "监护人电话",
+                    "name": "guardian_phone",
+                    "required": false,
+                    "placeholder": "请输入监护人电话"
+                  }
+                }
+              }
+            ]
+          },
+          "result": {
+            "kind": "form_actions",
+            "mode": "replace_empty_form",
+            "schemaVersion": "1.0",
+            "actions": [
+              {
+                "actionId": "add-field-001",
+                "action": "form.add_component",
+                "payload": {
+                  "clientRef": "student-no",
+                  "componentName": "Input",
+                  "props": {
+                    "label": "学号",
+                    "name": "student_no",
+                    "required": true,
+                    "placeholder": "请输入学号"
+                  },
+                  "target": { "kind": "root", "index": 0 }
+                }
+              },
+              {
+                "actionId": "add-field-002",
+                "action": "form.add_component",
+                "payload": {
+                  "clientRef": "student-name",
+                  "componentName": "Input",
+                  "props": {
+                    "label": "姓名",
+                    "name": "student_name",
+                    "required": true,
+                    "placeholder": "请输入姓名"
+                  },
+                  "target": { "kind": "root", "index": 1 }
+                }
+              },
+              {
+                "actionId": "add-field-003",
+                "action": "form.add_component",
+                "payload": {
+                  "clientRef": "gender",
+                  "componentName": "SelectSingle",
+                  "props": {
+                    "label": "性别",
+                    "name": "gender",
+                    "required": true,
+                    "placeholder": "请选择性别",
+                    "options": [
+                      { "label": "男", "value": "male" },
+                      { "label": "女", "value": "female" }
+                    ]
+                  },
+                  "target": { "kind": "root", "index": 2 }
+                }
+              },
+              {
+                "actionId": "add-field-004",
+                "action": "form.add_component",
+                "payload": {
+                  "clientRef": "birth-date",
+                  "componentName": "DatePicker",
+                  "props": {
+                    "label": "出生日期",
+                    "name": "birth_date",
+                    "required": false,
+                    "placeholder": "请选择出生日期"
+                  },
+                  "target": { "kind": "root", "index": 3 }
+                }
+              },
+              {
+                "actionId": "add-field-005",
+                "action": "form.add_component",
+                "payload": {
+                  "clientRef": "class-name",
+                  "componentName": "Input",
+                  "props": {
+                    "label": "班级",
+                    "name": "class_name",
+                    "required": true,
+                    "placeholder": "请输入班级"
+                  },
+                  "target": { "kind": "root", "index": 4 }
+                }
+              },
+              {
+                "actionId": "add-field-006",
+                "action": "form.add_component",
+                "payload": {
+                  "clientRef": "enrollment-date",
+                  "componentName": "DatePicker",
+                  "props": {
+                    "label": "入学日期",
+                    "name": "enrollment_date",
+                    "required": false,
+                    "placeholder": "请选择入学日期"
+                  },
+                  "target": { "kind": "root", "index": 5 }
+                }
+              },
+              {
+                "actionId": "add-field-007",
+                "action": "form.add_component",
+                "payload": {
+                  "clientRef": "phone",
+                  "componentName": "Input",
+                  "props": {
+                    "label": "联系电话",
+                    "name": "phone",
+                    "required": false,
+                    "placeholder": "请输入联系电话"
+                  },
+                  "target": { "kind": "root", "index": 6 }
+                }
+              },
+              {
+                "actionId": "add-field-008",
+                "action": "form.add_component",
+                "payload": {
+                  "clientRef": "address",
+                  "componentName": "Input.TextArea",
+                  "props": {
+                    "label": "家庭住址",
+                    "name": "address",
+                    "required": false,
+                    "placeholder": "请输入家庭住址"
+                  },
+                  "target": { "kind": "root", "index": 7 }
+                }
+              },
+              {
+                "actionId": "add-field-009",
+                "action": "form.add_component",
+                "payload": {
+                  "clientRef": "guardian-name",
+                  "componentName": "Input",
+                  "props": {
+                    "label": "监护人姓名",
+                    "name": "guardian_name",
+                    "required": false,
+                    "placeholder": "请输入监护人姓名"
+                  },
+                  "target": { "kind": "root", "index": 8 }
+                }
+              },
+              {
+                "actionId": "add-field-010",
+                "action": "form.add_component",
+                "payload": {
+                  "clientRef": "guardian-phone",
+                  "componentName": "Input",
+                  "props": {
+                    "label": "监护人电话",
+                    "name": "guardian_phone",
+                    "required": false,
+                    "placeholder": "请输入监护人电话"
+                  },
+                  "target": { "kind": "root", "index": 9 }
+                }
+              }
+            ]
+          },
+          "validation": {
+            "status": "passed",
+            "schemaVersion": "1.1.0",
+            "actionVersion": "1.0",
+            "fieldCount": 10
+          }
+        }
+      },
+      "sequence": 0,
+      "status": "completed",
+      "title": "生成表单设计提案",
+      "completed_title": "表单设计提案已生成",
+      "output_type": "json",
+      "source_event_type": "pipeline.step.output.completed"
+    },
+    "created_at": "2026-11-20T17:09:44.917978+08:00"
+  }

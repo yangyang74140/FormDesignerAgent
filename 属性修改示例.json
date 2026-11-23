@@ -1,0 +1,46 @@
+{
+    "form_proposal": {
+      "protocol": "form-agent.v1",
+      "contractVersion": "form_property_proposal.v1",
+      "proposalId": "proposal-update-placeholder",
+      "requestId": "request-002",
+      "status": "ready",
+      "summary": "修改申请说明的占位提示，等待用户确认。",
+      "target": {
+        "schemaId": "form-example",
+        "formId": "form-demo",
+        "baseRevision": "rev-1"
+      },
+      "mode": "append",
+      "actionVersion": "form_property_actions.v1",
+      "catalogVersion": "component-properties.v1",
+      "presentation": {
+        "kind": "shared.component-property-checklist",
+        "title": "组件属性修改建议"
+      },
+      "actions": [
+        {
+          "actionId": "update-placeholder",
+          "action": "form.apply_property_change",
+          "payload": {
+            "nodeId": "field-example",
+            "componentName": "Input",
+            "property": "placeholder",
+            "operation": "set",
+            "value": "请输入申请原因"
+          },
+          "preconditions": {
+            "before": {
+              "exists": true,
+              "value": ""
+            }
+          },
+          "dependsOn": [],
+          "display": {
+            "selectedByDefault": true
+          }
+        }
+      ],
+      "diagnostics": []
+    }
+  }

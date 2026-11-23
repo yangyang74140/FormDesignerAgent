@@ -134,11 +134,12 @@ class ExistingCanvasTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "空白"):
             compile_additions(context, mode="replace_empty_form")
 
-    def test_schema_version_mismatch_and_invalid_positions_are_rejected(self):
+    def test_schema_version_metadata_does_not_gate_generation_but_invalid_positions_are_rejected(self):
         context = saved_context()
-        context["schemaVersion"] = "1.0.0"
-        with self.assertRaisesRegex(ValueError, "不一致"):
-            compile_additions(context)
+        context["schemaVersion"] = "custom-schema"
+        result = compile_additions(context)
+        self.assertEqual(result["status"], "ready")
+        self.assertEqual(result["schemaVersion"], "custom-schema")
         for target in ({"kind": "root", "index": 99}, {"kind": "root", "index": True}, {"kind": "relative", "anchorLabel": "学号"}):
             with self.subTest(target=target), self.assertRaises(ValueError):
                 compile_additions(target=target)

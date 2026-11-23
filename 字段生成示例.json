@@ -1,0 +1,70 @@
+{
+    "form_proposal": {
+      "protocol": "form-agent.v1",
+      "contractVersion": "form_agent_proposal.v1",
+      "proposalId": "proposal-create-student",
+      "requestId": "request-001",
+      "status": "ready",
+      "summary": "生成姓名、性别两个字段，等待用户确认。",
+      "target": {
+        "schemaId": "student-demo",
+        "formId": "form-demo",
+        "baseRevision": "rev-0"
+      },
+      "mode": "replace_empty_form",
+      "actionVersion": "1.0",
+      "presentation": {
+        "kind": "shared.table-field-confirm",
+        "title": "学生信息字段确认"
+      },
+      "actions": [
+        {
+          "actionId": "add-student-name",
+          "action": "form.add_component",
+          "payload": {
+            "clientRef": "student-name",
+            "componentName": "Input",
+            "props": {
+              "label": "姓名",
+              "name": "student_name",
+              "required": true,
+              "placeholder": "请输入姓名"
+            },
+            "target": {
+              "kind": "root"
+            }
+          },
+          "dependsOn": [],
+          "display": {
+            "selectedByDefault": true
+          }
+        },
+        {
+          "actionId": "add-student-gender",
+          "action": "form.add_component",
+          "payload": {
+            "clientRef": "student-gender",
+            "componentName": "SelectSingle",
+            "props": {
+              "label": "性别",
+              "name": "gender",
+              "required": false,
+              "placeholder": "请选择性别",
+              "options": [
+                { "label": "男", "value": "male" },
+                { "label": "女", "value": "female" }
+              ]
+            },
+            "target": {
+              "kind": "root"
+            }
+          },
+          "dependsOn": [],
+          "display": {
+            "selectedByDefault": true
+          }
+        }
+      ],
+      "diagnostics": []
+    }
+  }

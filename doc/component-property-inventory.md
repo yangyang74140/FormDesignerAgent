@@ -13,7 +13,7 @@
 - 第 11 节：完整单行文本 FormSchema 示例。
 - 第 12 节：十项源码行为核验结果与源码证据入口。
 
-属性表和现状说明以当前源码为依据；文中标为“建议”“需要接入”的执行和清空规则尚未写入运行时。声明 writableProps 本身不代表对应能力已实现。
+属性表和现状说明以整理时核验的源码为依据；文中标为“建议”“需要接入”的执行和清空规则不能视作宿主已部署。Agent 当前规则及实现分层见包内[属性规范](../specialized-agent-package/specs/properties.md)和[组件目录](../specialized-agent-package/specs/components/README.md)；后续实现进展以这些规范、源码与测试为准，不把本清单的历史缺口描述当作最新状态。声明 writableProps 本身不代表对应能力已实现。
 
 ## 2. 组件标识与初始数据
 
@@ -373,7 +373,7 @@ type RelatedFieldValue = {
 
 可继续沿用 form.update_component，但在展示与执行之间建立稳定的属性修改项 ID。建议每项包含 changeId、nodeId、componentName、语义属性标识、before/after（含“缺失”状态）及对应 actionId；前端只编译用户勾选项。默认值模式+内容、选项默认项、access 联动属于一项语义修改的完整效果，不能拆成会产生无效组合的任意叶子键。
 
-“换一换”需重新获取最新组件状态与 revision，再生成候选项；应用时重新检查目标、版本、before、锁定条件和最终候选状态。当前项目类型中的 presentation 是 form_field_list + fields，并没有属性 changes 契约；不能直接假定支持截图中的逐项勾选。
+“换一换”需重新获取最新组件状态与 revision，再生成候选项；应用时重新检查目标、版本、before、锁定条件和最终候选状态。整理时的旧字段路径使用 `form_field_list + fields`。2026-11-20 用户批准的单提案契约已明确：子 Agent 仅输出 `{ form_proposal: proposal }`，字段 `presentation.kind = shared.table-field-confirm`，属性修改 `presentation.kind = shared.component-property-checklist`，属性提案保留完整 items 与原动作，不复用字段勾选语义。ai-chat 本地投影现有 Props，宿主类型和校验器兼容新旧 kind；历史有效显式 component 优先、无效声明不降级。仅 ready 且领域契约有效、kind 匹配并通过注册/业务白名单时渲染确认卡；未知、错配 kind 和非 ready 不获得应用资格。第 10 节其余内容保留为原核验时的建议，实际属性契约见 [三端接入说明](./ai-chat-property-edit-integration.md)，能力及部署结果以当前实施验证为准。
 
 现有更新动作载荷示例（只展示已有动作外形，不表示缺口已经修复）：
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from copy import deepcopy
 import inspect
 from typing import Any
 
@@ -12,9 +14,23 @@ from .form_generation.proposal import (
     FORM_PROPOSAL_PIPELINE,
     FORM_PROPOSAL_STEP,
     compile_form_proposal,
+    host_context_diagnostic,
     normalize_host_context,
     proposal_capabilities,
 )
+
+def _step_result(result: Any) -> Any:
+    if isinstance(result, Mapping):
+        return dict(result)
+    # The SDK can return a PipelineStepResult object instead of its dictionary envelope.
+    if isinstance(getattr(result, "status", None), str):
+        return {
+            key: getattr(result, key)
+            for key in ("status", "output", "summary", "diagnostics", "error_code", "abort_run", "artifact_ref")
+            if hasattr(result, key)
+        }
+    return result
+
 
 def _completed(result: Any) -> bool:
     return isinstance(result, dict) and str(result.get("status") or "") == "completed"
@@ -54,6 +70,14 @@ def compile_platform_proposal(ir_payload: Any, context: Any) -> dict[str, Any]:
             "currentSchema", "capabilities", "supportedActionVersions"
         )
         missing = [key for key in required_context if not host.get(key)]
+        if missing and "currentSchema" not in missing:
+            return compile_form_proposal({
+                "capability": "proposal.unsupported",
+                "slots": {
+                    "summary": "宿主能力不完整，暂不支持本次操作；缺少：" + "、".join(missing),
+                    "code": "HOST_CAPABILITY_REQUIRED",
+                },
+            }, context)
         if missing:
             return compile_form_proposal({
                 "capability": "proposal.needs_clarification",
@@ -70,12 +94,21 @@ def compile_platform_proposal(ir_payload: Any, context: Any) -> dict[str, Any]:
             "status": "failed",
             "error_code": "form_proposal_validation_failed",
             "summary": f"表单提案校验未通过：{error}",
+            "abort_run": True,
         }
 
 
 async def generate_form_proposal(step_context: Any) -> Any:
     """Generate one capability-aware proposal and publish only the final artifact."""
     host_context = normalize_host_context(step_context)
+    context_diagnostics = [host_context_diagnostic(step_context, "handler")]
+
+    def compile_with_host_snapshot(ir_payload: Any, context: Any) -> dict[str, Any]:
+        trace = host_context_diagnostic(context, "compiler")
+        trace["compile_source"] = "handler_snapshot"
+        context_diagnostics.append(trace)
+        return compile_platform_proposal(ir_payload, host_context)
+
     result = await step_context.native_capability.generate(
         task=(
             "根据用户请求和宿主快照生成受控 Native Capability IR。"
@@ -86,16 +119,16 @@ async def generate_form_proposal(step_context: Any) -> Any:
         ),
         input_data={
             "user_input": step_context.inputs,
-            "host_context": host_context,
+            "host_context": deepcopy(host_context),
         },
         allow_plan_items=True,
         max_plan_items=64,
-        allowed_capabilities=proposal_capabilities(),
+        allowed_capabilities=proposal_capabilities(host_context),
         forbidden_fields=[
             "id", "schema", "form_schema", "javascript", "eval", "sql",
             "dom", "react_state", "local_storage", "primaryKey", "nextValueSeed",
         ],
-        compiler=compile_platform_proposal,
+        compiler=compile_with_host_snapshot,
         output_type="json",
         output_contract=FORM_PROPOSAL_CONTRACT,
         prompt_rules=[
@@ -111,7 +144,11 @@ async def generate_form_proposal(step_context: Any) -> Any:
             "相同锚点的一批新字段按用户描述顺序定义，由编译器计算连续插入下标，不能重复定义已有字段。目标不存在、重名或选择为空时必须澄清，不默认改为末尾追加。",
             "七类组件的属性编辑统一使用 proposal.begin result_kind=property_changes + form.property.change；查询用 property_query + form.property.query；撤销用 property_undo + form.property.undo。属性复制通过 change.operation=copy，不直接复制身份信息。新旧路径不得混用。",
             "每条属性 IR 使用 node_id 或 use_selection=true，也可用 node_label/node_name 唯一定位；property 必须来自宿主 properties 目录。operation=set/clear/unset/reset/copy，set 必须有 value；copy 使用 source_node_id/source_property。",
-            "必添/不能为空映射 required；提示文字映射 placeholder；长度上限映射 textLengthLimit，不是 maxLength；标签靠左映射 titleAlign，不是 labelAlign；手机号优先内置 formatValidation。禁用按权限语义处理，不能虚构 disabled。",
+            "必添/不能为空映射 required；提示文字映射 placeholder；长度上限映射 textLengthLimit，不是 maxLength；标签靠左映射 titleAlign，不是 labelAlign；手机号优先内置 formatValidation。",
+            "组件和属性能力缺失时必须明确返回 proposal.unsupported，summary 说明哪项需求暂不支持及缺少的目录、属性或处理器，不得根据常见组件经验猜属性。",
+            "用户要求禁用时，不能自行生成 disabled、readOnly、edit=false 或 access，也不能把禁止手工编辑当成禁用。没有明确注册且适用于本操作的禁用语义和写入规则，就说明：暂时还不支持禁用，当前没有已声明的禁用属性及写入规则。",
+            "例如生成禁用的姓名字段：姓名应使用 Input；如果禁用能力未声明，返回 unsupported，明确姓名可用 Input 但暂时还不支持禁用。本轮不交付忽略禁用要求的可执行提案；不能声称已完成或静默降级。",
+            "form.field.define 仅支持声明的七个槽位；宿主目录提供其他属性也不会自动扩展该 IR。任何用户明确要求但此操作无法表达的属性都要说明暂不支持，不能省略后返回 ready。",
             "属性目录提供值类型、枚举、范围、默认值和操作；开启必填转换 boolean，数字 0 是合法值，文本默认值 1 保留字符串；选项必须保留真实业务 value，不猜序号。",
             "大一点、加一个规则等存在多种解释时使用 proposal.needs_clarification；宿主未声明的宽度、规则、联动或撤销使用 unsupported，不生成 JS 字符串表达式。",
             "用户明确请求的属性 selected=true，额外建议 selected=false；一行一个完整语义操作，默认值模式和值、权限联动不拆散；before/after、ID 和文案由编译器生成。",
@@ -122,8 +159,10 @@ async def generate_form_proposal(step_context: Any) -> Any:
 
             "needs_clarification、unsupported、no_change 没有字段或动作时，也必须使用只含一个项目的 plan_items 数组。",
             "form.field.define 只填写 client_ref、component_name、label、name、required、placeholder、options。",
+            "client_ref 在本批及当前画布中唯一，以小写字母开头，其后可用小写字母、数字、下划线或连字符，例如 student_no、student-name；不生成持久化 ID。name 单独遵守宿主 fieldNameRules。",
+            "当前任务固定为设计器画布中的表单设计，不询问 Excel、CSV 或文件格式。生成校验失败应保留具体错误，不要求用户重复已明确的字段需求，也不把失败说成已生成或已应用。",
             "首期仅支持 Input、Input.TextArea、DatePicker、TimePicker、NumberPicker、SelectSingle、SelectMulti、CheckboxGroup、Switch。",
-            "字段生成支持 Schema 1.0.0 和 1.1.0 的单层 Flow 画布。空白时 replace_empty_form，非空时必须 append；保留已有 ID、name、props、选项和配置。",
+            "字段生成支持单层 Flow 画布。Schema 版本仅作元数据，不设白名单，也不要求与当前快照一致；按结构、宿主能力和 Action 契约判断。空白时 replace_empty_form，非空时必须 append；保留已有 ID、name、props、选项和配置。",
             "属性编辑使用新属性协议；其他现有表单编辑使用 form_actions + append，保留未提及字段、ID、name 和布局。",
             "查询必须读取 resolvedProperties 和真实 Schema，区分本地、继承和默认值；查询输出只读，不产生修改动作。撤销必须引用真实 history 事务，不能生成反向覆盖补丁。",
             "本轮上下文包括 resolvedProperties、history 和 capabilities.nodePolicies；保存锁、设备和布局限制不能绕过。最终动作只在宿主声明支持的协议版本下生成。" ,
@@ -171,6 +210,16 @@ async def generate_form_proposal(step_context: Any) -> Any:
                         },
                     ]
                 },
+            },
+            {
+                "input": "生成一个禁用的姓名字段（宿主没有声明禁用属性和写入规则）",
+                "output": {"plan_items": [{
+                    "capability": "proposal.unsupported",
+                    "slots": {
+                        "summary": "姓名字段可使用 Input，但暂时还不支持禁用：当前没有已声明的禁用属性及写入规则。",
+                        "code": "UNSUPPORTED_PROPERTY",
+                    },
+                }]},
             },
             {
                 "input": "把当前字段设为必填",
@@ -261,23 +310,35 @@ async def generate_form_proposal(step_context: Any) -> Any:
             },
         ],
     )
+    context_diagnostics[0]["native_result_type"] = type(result).__name__
+    result = _step_result(result)
+    native_diagnostics = result.get("diagnostics") if isinstance(result, dict) else None
+    diagnostics = [*(native_diagnostics if isinstance(native_diagnostics, list) else []), *context_diagnostics]
     if not _completed(result):
+        if isinstance(result, dict):
+            if result.get("status") == "failed":
+                result["abort_run"] = True
+            return {**result, "diagnostics": diagnostics}
         return result
     output = _result_output(result)
     proposal = output.get("form_proposal") if isinstance(output, dict) else None
     if not isinstance(proposal, dict):
-        return {"status": "failed", "summary": "未得到有效表单提案。", "error_code": "form_proposal_missing"}
-    await _publish_event(
-        step_context,
-        FORM_PROPOSAL_EVENT,
-        {
-            "block_id": "form_proposal",
-            "title": "表单设计提案",
-            "status": proposal.get("status"),
-            "proposal": proposal,
-        },
-    )
-    return {"status": "completed", "output": {"form_proposal": proposal}, "summary": proposal.get("summary", "表单提案已生成。")}
+        return {
+            "status": "failed", "summary": "未得到有效表单提案。",
+            "error_code": "form_proposal_missing", "diagnostics": diagnostics, "abort_run": True,
+        }
+    output = {"form_proposal": proposal}
+    event_payload = {
+        "block_id": "form_proposal",
+        "title": "表单设计提案",
+        "status": proposal.get("status"),
+        "proposal": proposal,
+    }
+    await _publish_event(step_context, FORM_PROPOSAL_EVENT, event_payload)
+    return {
+        "status": "completed", "output": output,
+        "summary": proposal.get("summary", "表单提案已生成。"), "diagnostics": diagnostics,
+    }
 
 
 def register_agent(context: Any) -> None:
