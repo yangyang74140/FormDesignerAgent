@@ -326,7 +326,7 @@ class PropertyTests(unittest.TestCase):
         context["nodePolicies"]["b"] = deepcopy(context["nodePolicies"]["a"])
         result = run([change("textLengthLimit", operation="copy", source_node_id="b")], context)
         self.assertEqual(result["status"], "ready", result)
-        self.assertEqual(result["presentation"]["items"][0]["after"]["value"], 30)
+        self.assertEqual(result["presentation"]["items"][0]["after"]["value"], {"enabled": True, "maxLength": 30})
         reset = run([change("textLengthLimit", operation="reset")], context)
         self.assertEqual(reset["presentation"]["items"][0]["after"]["value"], {"enabled": False, "maxLength": 200})
         props["defaultValue"] = "stale"

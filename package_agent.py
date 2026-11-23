@@ -19,7 +19,7 @@ def main():
         [sys.executable, "-B", "-m", "unittest", "discover", "-s", str(source / "tests"), "-q"],
         cwd=root, check=True,
     )
-    files = [source / name for name in ("manifest.yaml", "bootstrap.py", "agent_definition.py", "README.md")]
+    files = [source / name for name in ("manifest.yaml", "bootstrap.py", "agent_definition.py", "README.md", "release_config.json")]
     files += sorted((source / "form_generation").glob("*.py"))
     for path in files:
         if path.suffix == ".py":

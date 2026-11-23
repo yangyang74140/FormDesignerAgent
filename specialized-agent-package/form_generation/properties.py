@@ -46,11 +46,11 @@ _COMMON = {"label", "enableCustomTitle", "customTitle", "description", "descript
 _SPECIFIC = {
     "Input": {"allowClear", "textLengthLimit", "showLimitHint", "textMaxLength", "enableQuickCopy", "enableLinkParser", "relatedField", "isUnique", "uniqueMessage", "format", "formatMessage", "formatValidation"},
     "Input.TextArea": {"rows", "disableAutoHeight", "showEmptyLines", "textLengthLimit", "showLimitHint", "textMaxLength", "enableQuickCopy", "enableLinkParser", "relatedField"},
-    "NumberPicker": {"precision", "numberType", "showAmountInUppercase", "amountInUppercase", "thousandsSeparator", "step", "innerAfter", "relatedField", "minEnable", "min", "minMessage", "maxEnable", "max", "maxMessage"},
+    "NumberPicker": {"numericRange", "precision", "numberType", "showAmountInUppercase", "amountInUppercase", "thousandsSeparator", "step", "innerAfter", "relatedField", "minEnable", "min", "minMessage", "maxEnable", "max", "maxMessage"},
     "DatePicker": {"format", "allowClear", "relatedField", "disabledDays", "minTimeCondition", "maxTimeCondition"},
     "TimePicker": {"format", "allowClear", "minuteStep", "secondStep", "relatedField", "minTimeCondition", "maxTimeCondition"},
     "SelectSingle": {"allowClear", "popupMatchSelectWidth", "showSearch", "options", "relatedField"},
-    "SelectMulti": {"popupMatchSelectWidth", "selectAll", "showSearch", "supportReverseSelect", "options", "relatedField", "maxCountEnable", "maxTagCount", "maxCountMessage"},
+    "SelectMulti": {"selectionLimit", "popupMatchSelectWidth", "selectAll", "showSearch", "supportReverseSelect", "options", "relatedField", "maxCountEnable", "maxTagCount", "maxCountMessage"},
 }
 _BOOLS = {"enableCustomTitle", "required", "edit", "display", "disableManualEdit", "titleHidden", "readOnlyDisplay", "allowClear", "showLimitHint", "enableQuickCopy", "enableLinkParser", "isUnique", "disableAutoHeight", "showEmptyLines", "showAmountInUppercase", "thousandsSeparator", "minEnable", "maxEnable", "popupMatchSelectWidth", "showSearch", "selectAll", "supportReverseSelect", "maxCountEnable"}
 _NUMBERS = {"rows": (3, 10), "precision": (0, 10), "step": (0, None), "minuteStep": (1, 59), "secondStep": (1, 59), "min": (None, None), "max": (None, None), "textMaxLength": (1, None), "textLengthLimit": (1, None), "maxTagCount": (1, None)}
@@ -293,23 +293,41 @@ def _snapshot(node: Mapping[str, Any], prop: str) -> dict[str, Any]:
         key = _ACCESS[prop]
         return {"exists": key in access, **({"value": deepcopy(access[key])} if key in access else {})}
     if prop == "defaultValue" and node["componentName"] not in ("SelectSingle", "SelectMulti"):
-        if "defaultValueConfig" not in props:
+        if "defaultValueConfig" not in props and "defaultValue" not in props:
             return {"exists": False}
-        mode = props["defaultValueConfig"]
+        mode = props.get("defaultValueConfig", "custom" if "defaultValue" in props else "undefined")
         value = {"mode": mode}
         if mode in ("custom", "formula") and "defaultValue" in props:
             value["value"] = deepcopy(props["defaultValue"])
         return {"exists": True, "value": value}
     if prop == "textLengthLimit":
-        return {"exists": "showLimitHint" in props or "textMaxLength" in props, "value": {"enabled": props.get("showLimitHint", False), **({"maxLength": props["textMaxLength"]} if "textMaxLength" in props else {})}} if "showLimitHint" in props or "textMaxLength" in props else {"exists": False}
+        return {"exists": True, "value": {"enabled": props.get("showLimitHint", False), "maxLength": props.get("textMaxLength", 200)}} if "showLimitHint" in props or "textMaxLength" in props else {"exists": False}
     if prop == "formatValidation":
-        return {"exists": True, "value": {"format": props["format"], **({"message": props["formatMessage"]} if "formatMessage" in props else {})}} if "format" in props else {"exists": False}
+        return {"exists": True, "value": {"format": props.get("format", "none"), **({"message": props["formatMessage"]} if "formatMessage" in props else {})}} if "format" in props or "formatMessage" in props else {"exists": False}
+    if prop == "numericRange":
+        keys = ("minEnable", "min", "minMessage", "maxEnable", "max", "maxMessage")
+        value = {bound: {"value": props[bound], **({"message": props[bound + "Message"]} if bound + "Message" in props else {})}
+                 for bound in ("min", "max") if props.get(bound + "Enable") is True and bound in props}
+        return {"exists": True, "value": value} if any(key in props for key in keys) else {"exists": False}
+    if prop == "selectionLimit":
+        value = {"count": props["maxTagCount"], **({"message": props["maxCountMessage"]} if "maxCountMessage" in props else {})} if props.get("maxCountEnable") is True and "maxTagCount" in props else None
+        return {"exists": True, "value": value} if any(key in props for key in ("maxCountEnable", "maxTagCount", "maxCountMessage")) else {"exists": False}
     key = _STORAGE.get(prop, prop)
     return {"exists": key in props, **({"value": deepcopy(props[key])} if key in props else {})}
 
 
+def _stored(node: dict[str, Any], prop: str, context: Mapping[str, Any]) -> dict[str, Any]:
+    host = context.get("resolvedProperties", {}).get(node["id"], {}).get(prop)
+    if isinstance(host, dict) and "stored" in host:
+        state = host["stored"]
+        if not isinstance(state, dict) or type(state.get("exists")) is not bool or set(state) - {"exists", "value"} or state["exists"] != ("value" in state) or not _json_safe(state):
+            _reject("INVALID_RESOLVED_PROPERTY", "宿主 stored 属性快照无效。")
+        return deepcopy(state)
+    return _snapshot(node, prop)
+
+
 def _resolved(node: dict[str, Any], prop: str, definition: dict[str, Any], context: Mapping[str, Any]) -> dict[str, Any]:
-    stored = _snapshot(node, prop)
+    stored = _stored(node, prop, context)
     host = context.get("resolvedProperties", {}).get(node["id"], {}).get(prop)
     if host is not None:
         if not isinstance(host, dict) or host.get("source") not in ("local", "inherited", "default") or "resolvedValue" not in host:
@@ -400,6 +418,13 @@ def _validate_value(node: dict[str, Any], prop: str, value: Any, definition: dic
             _schema(value, {"type": "object", "properties": {"enabled": {"const": False}, "maxLength": _NUMBERS_SCHEMA}, "required": ["enabled"], "additionalProperties": False})
         else:
             _schema(value, _NUMBERS_SCHEMA)
+    elif prop == "numericRange":
+        bound_schema = {"type": "object", "properties": {"value": {"type": "number"}, "message": {"type": "string", "maxLength": 200}}, "required": ["value"], "additionalProperties": False}
+        _schema(value, {"type": "object", "properties": {"min": bound_schema, "max": bound_schema}, "additionalProperties": False})
+        if "min" in value and "max" in value and value["min"]["value"] > value["max"]["value"]:
+            _reject("INVALID_RANGE", "最小值不能大于最大值。")
+    elif prop == "selectionLimit":
+        _schema(value, {"type": "object", "properties": {"count": {"type": "integer", "minimum": 1, "maximum": 1000}, "message": {"type": "string", "maxLength": 200}}, "required": ["count"], "additionalProperties": False})
     elif prop == "formatValidation":
         _schema(value, {"type": "object", "properties": {"format": {"type": "string", "enum": _FORMATS["Input"]}, "message": {"type": "string"}}, "required": ["format"], "additionalProperties": False})
     elif intrinsic:
@@ -445,9 +470,9 @@ def _compound_semantics(node: dict[str, Any], prop: str, value: Any, definition:
         elif source == "dynamic":
             mode = value.get("dynamicMode")
             if mode == "current":
-                allowed = common | {"dynamicMode"} | ({"dynamicAnchor"} if component == "DatePicker" else set())
-                anchors = {"today", "currentWeek", "currentMonth", "nextMonth", "currentQuarter", "currentYear"}
-                if set(value) - allowed or component == "DatePicker" and value.get("dynamicAnchor") not in anchors:
+                allowed = common | {"dynamicMode", "dynamicAnchor"}
+                anchors = {"today", "currentWeek", "currentMonth", "nextMonth", "currentQuarter", "currentYear"} if component == "DatePicker" else {"today"}
+                if set(value) - allowed or value.get("dynamicAnchor", "today" if component == "TimePicker" else None) not in anchors:
                     _reject("INVALID_TIME_CONDITION", "动态当前时间分支参数无效。")
             elif component == "DatePicker" and mode in ("before", "after"):
                 if set(value) != common | {"dynamicMode", "dynamicUnit", "offsetValue"} or value["dynamicUnit"] not in ("day", "week", "month", "quarter", "year"):
@@ -516,6 +541,8 @@ def _after(node: dict[str, Any], prop: str, op: str, slots: Mapping[str, Any], d
             value = deepcopy(definition["default"])
         elif prop in _DEFAULTS:
             value = _DEFAULTS[prop]
+        elif prop in ("numericRange", "selectionLimit", "disabledDays", "minTimeCondition", "maxTimeCondition"):
+            value = {} if prop == "numericRange" else None
         elif prop == "textLengthLimit":
             value = {"enabled": False, "maxLength": 200}
         elif prop == "formatValidation":
@@ -546,9 +573,13 @@ def _after(node: dict[str, Any], prop: str, op: str, slots: Mapping[str, Any], d
             if node["componentName"] == "SelectSingle":
                 return {"exists": False}
             return {"exists": True, "value": [] if node["componentName"] == "SelectMulti" else {"mode": "undefined"}}
+        if prop == "numericRange":
+            return {"exists": True, "value": {}}
+        if prop == "selectionLimit":
+            return {"exists": True, "value": None}
         if prop == "textLengthLimit":
             props = node.get("props", {})
-            return {"exists": True, "value": {"enabled": False, **({"maxLength": props["textMaxLength"]} if "textMaxLength" in props else {})}}
+            return {"exists": True, "value": {"enabled": False, "maxLength": props.get("textMaxLength", 200)}}
         if prop == "formatValidation":
             props = node.get("props", {})
             return {"exists": True, "value": {"format": "none", **({"message": props["formatMessage"]} if "formatMessage" in props else {})}}
@@ -611,6 +642,31 @@ def _simulate(node: dict[str, Any], prop: str, after: dict[str, Any]) -> list[st
         elif "maxLength" in value:
             props["textMaxLength"] = value["maxLength"]
         return ["成组更新计数器与输入长度限制；关闭时保留历史阈值"]
+    if prop == "numericRange":
+        for bound in ("min", "max"):
+            props[bound + "Enable"] = bound in value
+            if bound in value:
+                props[bound] = value[bound]["value"]
+                if "message" in value[bound]:
+                    props[bound + "Message"] = value[bound]["message"]
+                else:
+                    props.pop(bound + "Message", None)
+            else:
+                props.pop(bound, None)
+                props.pop(bound + "Message", None)
+        return ["成组更新最小值、最大值及提示；未指定的边界关闭并清理"]
+    if prop == "selectionLimit":
+        props["maxCountEnable"] = value is not None
+        if value is None:
+            props.pop("maxTagCount", None)
+            props.pop("maxCountMessage", None)
+        else:
+            props["maxTagCount"] = value["count"]
+            if "message" in value:
+                props["maxCountMessage"] = value["message"]
+            else:
+                props.pop("maxCountMessage", None)
+        return ["成组更新最多选择数和提示，不改变选项身份"]
     if prop == "formatValidation":
         props["format"] = value["format"]
         if "message" in value:
@@ -850,7 +906,7 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
                 _policy(node, prop, definition, context)
                 _version(context, "form.apply_property_change")
                 action_name = "form.apply_property_change"
-                before = _snapshot(node, prop)
+                before = _stored(node, prop, context)
                 payload = {"nodeId": node["id"], "componentName": node["componentName"], "property": prop, "operation": op}
                 if op == "copy":
                     if "value" in slots or not isinstance(slots.get("source_node_id"), str):
@@ -874,9 +930,12 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
                     after = _after(node, prop, op, slots, definition)
                     if op == "set":
                         payload["value"] = deepcopy(after["value"])
-                if after["exists"] and not (prop == "textLengthLimit" and op == "clear") and not (prop == "defaultValue" and op in ("clear", "reset") and node["componentName"] == "SelectMulti"):
+                derived_reset = op in ("clear", "reset") and prop in {"textLengthLimit", "selectionLimit", "numericRange", "defaultValue", "minTimeCondition", "maxTimeCondition", "disabledDays"}
+                if after["exists"] and not derived_reset:
                     validations.append((node["id"], prop, deepcopy(after["value"]), definition))
                 effects = _simulate(next_node, prop, after)
+                if prop == "textLengthLimit":
+                    after = _snapshot(next_node, prop)
                 conditions.append((node["id"], prop, definition, len(rows)))
             else:
                 _reject("UNSUPPORTED_CAPABILITY", "属性提案包含不受支持的 IR 能力。")
@@ -934,6 +993,36 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
                         row["dependsOn"].append(dependency[2])
                     if row["selectedByDefault"] and not dependency[1]:
                         _reject("SELECTION_DEPENDENCY", "所选属性依赖未勾选的格式或选项修改。", True)
+        for node in candidate:
+            props = node.get("props", {})
+            changed = {prop for node_id, prop in touched if node_id == node["id"]}
+            component = node["componentName"]
+            if component in ("Input", "Input.TextArea") and changed & {"textLengthLimit", "defaultValue"}:
+                default = props.get("defaultValue")
+                if props.get("defaultValueConfig") == "custom" and isinstance(default, str) and props.get("showLimitHint") is True:
+                    maximum = props.get("textMaxLength", 200)
+                    if type(maximum) in (int, float) and len(default) > maximum:
+                        _reject("INVALID_DEFAULT_RANGE", "默认文本超过输入长度限制。")
+            if component == "NumberPicker" and changed & {"numericRange", "defaultValue", "min", "max", "minEnable", "maxEnable"}:
+                default = props.get("defaultValue")
+                if props.get("defaultValueConfig") == "custom" and type(default) in (int, float):
+                    if any(props.get(bound + "Enable") is True and type(props.get(bound)) in (int, float) and (default < props[bound] if bound == "min" else default > props[bound]) for bound in ("min", "max")):
+                        _reject("INVALID_DEFAULT_RANGE", "默认数字超出配置范围。")
+            if component in ("DatePicker", "TimePicker") and changed & {"defaultValue", "format", "minTimeCondition", "maxTimeCondition"}:
+                default = props.get("defaultValue")
+                if props.get("defaultValueConfig") == "custom" and isinstance(default, str):
+                    _date(default, props.get("format"))
+                    for bound in ("minTimeCondition", "maxTimeCondition"):
+                        condition = props.get(bound)
+                        if isinstance(condition, dict) and condition.get("enabled") is True and condition.get("source") == "fixed":
+                            fixed = condition.get("fixedValue")
+                            if isinstance(fixed, str) and (default < fixed if bound == "minTimeCondition" else default > fixed):
+                                _reject("INVALID_DEFAULT_RANGE", "默认日期或时间超出固定范围。")
+            if component == "SelectMulti" and changed & {"selectionLimit", "defaultValue"} and props.get("maxCountEnable") is True:
+                default = props.get("defaultValue")
+                limit = props.get("maxTagCount")
+                if isinstance(default, list) and type(limit) in (int, float) and len(default) > limit:
+                    _reject("INVALID_DEFAULT_RANGE", "默认选项超过最多选择数量。")
         # Helper interactions must not silently invalidate another displayed intent.
         for row in rows:
             if ":" in row["property"]:
@@ -942,7 +1031,7 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
             actual = _snapshot(node, row["property"])
             if row["property"] == "textLengthLimit":
                 expected = row["after"]["value"]
-                valid = actual.get("value", {}).get("enabled") is False if isinstance(expected, dict) else actual.get("value", {}).get("enabled") is True and actual["value"].get("maxLength") == expected
+                valid = actual == row["after"] if isinstance(expected, dict) else actual.get("value", {}).get("enabled") is True and actual["value"].get("maxLength") == expected
             else:
                 valid = actual == row["after"]
             if not valid:

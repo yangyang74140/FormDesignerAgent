@@ -180,7 +180,7 @@ python3 -m unittest discover -s specialized-agent-package/tests -v
 python3 package_agent.py
 ```
 
-在仓库根目录执行。脚本先运行回归测试，再检查 Python 语法，生成 `specialized-agent-package-1.2.0.zip`；上传包根目录为插件入口，不包含测试、缓存或本地资料。
+在仓库根目录执行。脚本先运行回归测试，再检查 Python 语法，生成 `specialized-agent-package-1.2.6.zip`；上传包根目录为插件入口，不包含测试、缓存或本地资料。
 
 
 ### 规则、联动和撤销上下文约定
@@ -192,3 +192,65 @@ python3 package_agent.py
 属性 reset 需要注册 reset 操作。titleAlign/titlePosition 或 `reset.source=inherited` 删除局部覆盖；其他属性优先读取目录 `default`，其次使用已明确的内置默认值。受保存锁保护的属性必须提供真实保存状态，不能因状态缺失当成新字段。
 
 JSON Schema 仅支持编译器已实现的受控子集，未实现关键字（如 `$ref`、`not`、`format`）会明确拒绝。公式默认值、缺少引用检查的选项删除及未注册规则/联动不生成执行动作，需宿主补齐专用处理器后另行接入。
+
+
+## 1.2.1：真实设计器协议兼容
+
+- 支持 NumberPicker 的成组 `numericRange` 和 SelectMulti 的 `selectionLimit`。
+- `resolvedProperties[nodeId][property].stored` 为宿主提供的语义配置状态；经过结构校验后用于 before。查询有效值使用 `resolvedValue` 与 `source`。
+- `textLengthLimit` 的 set 输入为正整数，卡片 after 为 `{enabled:true,maxLength:N}`；clear/reset 不把派生配置再次作为 set 输入校验。TimePicker 动态当前时间支持面板的 `dynamicAnchor="today"`。
+- 保留旧包文件，1.2.1 是上传替换的补丁版本；上传发布后仍需宿主和聊天包完成对应协议接入，不能仅更新 Agent 就认为画布执行已就绪。
+
+### Agent 能力更新后宿主需要做什么
+
+| Agent 更新类型 | 设计器 / ai-chat 所需操作 |
+| --- | --- |
+| 提示词、同义词、错别字识别优化，输出契约不变 | 更新 Agent 发布版本，复测真实请求与旧案例；通常无需修改宿主代码 |
+| 新组件或新属性，宿主已有同语义处理器 | 核对组件范围、类型、默认/清空/继承语义、保存锁和布局条件；测试通过后才加入当前能力目录 |
+| 新复合属性或新执行效果 | 先实现并测试宿主处理器、预览和事务差异，再更新目录/策略/解析值；Agent 不得仅靠 writableProps 宣称支持 |
+| 新动作、新展示或破坏性契约变化 | 同步升级 ai-chat 解析/卡片、设计器动作分派/执行器，协商新版本；未知版本明确拒绝，保留旧协议兼容路径 |
+| 新规则、公式、联动、远程校验 | 先接通真实运行时/服务、字段引用校验及权限，再注册 capability；无运行时继续返回不支持 |
+
+发布前至少验证：宿主当前 context → 生产 Python 编译器 → 完整 SSE 卡片 → 勾选子集 → 真实 Store 与回执 → 下一轮新 Schema/revision。覆盖手工编辑冲突、重复应用、清空/重置、撤销以及原有新增字段流程。应用成功只表示未保存的画布更新；持久化仍须单独验证保存回读。目录是宿主真实支持能力的交集，Agent 升级不得自动开放尚未实现的属性。
+
+
+## 1.2.2：字段生成与属性能力共存、双 Schema 兼容
+
+本版仅修改 Agent，不修改 ai-chat 或设计器。Schema `1.1.0` 保留 `1.0.0` 的原有单层 Flow 字段新建、已有画布追加和增量编辑能力；同一 context 可以声明字段生成和属性编辑。按本轮意图分派，不把不同动作协议混在一个结果中。
+
+### 版本分层与选择规则
+
+| 输出字段 | 含义 | 选择规则 |
+| --- | --- | --- |
+| proposal.schemaVersion | 当前画布 Schema 版本 | 原样保留宿主的 `1.0.0` 或 `1.1.0`，不强制降级 |
+| proposal.contractVersion | 本轮提案契约 | 字段生成用 `form_agent_proposal.v1`，属性修改用 `form_property_proposal.v1` |
+| result.schemaVersion | 本批动作协议 | 只从本批实际动作的版本集合协商，禁止借用其他动作版本 |
+
+例如 context 同时包含 `form.add_component:["1.0"]` 和 `form.apply_property_change:["form_property_actions.v1"]`：字段生成返回动作版本 `1.0`，属性修改返回 `form_property_actions.v1`。旧增量批次包含多个动作时，必须有共同版本，否则拒绝。继续兼容旧宿主全局版本列表/布尔版本表；旧增量协议可选集合为 `1.0`、`form_actions.v1`、`form_actions.v2`，未知版本不会因字符串排序较大就被采用。
+
+### 新增组件白名单
+
+新增动作优先读取组件 `create.writableProps`，未提供时兼容旧 `writableProps/ editableProps`；显式空数组表示不能写入任何属性。根层组件目录优先于嵌套辅助属性快照，避免重复目录覆盖新增限制。
+
+- Switch 仅声明 label/name 时，字段定义中的缺省或 false 必填不再自动写入 required；明确请求 required=true 仍拒绝，不静默丢弃。
+- 其他字段未声明 required 且用户未请求时，不主动写入未授权默认属性。
+- 字段定义和直接 `form.add_component` 都执行同一新增白名单检查。
+
+### 验证与宿主边界
+
+新增回归覆盖双 Schema、混合能力、已有画布追加、批次共同版本、缺失/未知动作版本、创建白名单及属性动作隔离。另使用用户实际设计器 context 编译九类字段，通过并保留画布版本1.1.0，新增动作版本为1.0。
+
+宿主及聊天解析器仍必须支持返回的画布版本：若旧代码硬编码只接受 proposal.schemaVersion=1.0.0，需要由对应项目另行兼容1.1.0。本版不会伪造1.0.0输出绕过旧解析器。测试覆盖确定性编译和模拟平台SDK入口，不等于目标平台真实模型/SSE网络联调已完成。
+
+
+## 固定发布版本配置
+
+包内 `release_config.json` 记录本次指定的发布标识：
+
+```json
+{
+  "release_id": "d4d9ebc4-98a1-4d83-be4a-21344de9d036"
+}
+```
+
+该文件随 ZIP 交付，用于调用配置对照；不作为 manifest 字段，也不自动改变平台 Release。`release_id` 的选择在 Agent 执行之前由平台完成，调用方需要在 `/invoke` 请求顶层（与 input、stream、context 同级）传入上述值，不要放入 context。平台会检查其属于目标 service_id 且可用，包内记录不代表已验证远程发布状态。后续发布新版本时，应核对并更新调用方的固定 release_id，否则请求仍固定到旧发布快照。
