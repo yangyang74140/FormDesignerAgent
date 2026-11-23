@@ -20,7 +20,7 @@
 
 只有 ready 修改或专用撤销交付执行动作。宿主须声明相应动作、动作版本，提供真实组件目录、当前 Schema、固定目标和 revision；字段生成额外要求单层 Flow、命名和选项约束。顶层 actionVersion 保留原动作版本值；属性路径仍要求对应动作支持 `form_property_actions.v1`，不因结构调整新增版本、双格式解析或迁移。
 
-通用动作名称以 `form_generation/action_rules/` 注册表为准；属性路径独立校验。`form_generation/actions.py` 未注册到生产 Pipeline，不是本规范的来源。既有通用版本选择不等于逐动作版本交集授权，宿主必须逐项拒绝不能执行的动作或版本。
+通用动作名称以 `form_generation/action_rules/` 注册表为准；属性路径独立校验。`form_generation/actions.py` 未注册到生产 Pipeline，不是本规范的来源。通用动作版本只从本批实际动作的声明中取交集，按 form_actions.v2、form_actions.v1、1.0 选择；不得借用属性动作版本。缺少任一动作版本或无共同版本时 unsupported，宿主仍须逐项复验。
 
 ## 组件动作
 
@@ -37,7 +37,7 @@
 
 新增不分配持久化 ID。clientRef 以小写字母开头，后续只允许小写字母、数字、下划线或连字符，必须唯一并原样保留；它是新节点身份，不是复选框 ID。字段定义路径进一步校验 label、业务 name、唯一 name/clientRef、选项 label/value、数量和总字段数；通用原始新增路径的既有校验深度不同，不能据此宣称已完成全部语义检查。
 
-字段生成、原始新增和转换要求组件在本轮非空 components/componentCatalog/componentCapabilities 目录中，`supported:false` 不开放；规则目录的兼容组件引用不授予组件能力。生成、原始新增、属性/选项更新要求明确且非空 writableProps；仅未提供该键时才读取 editableProps，显式空列表不回退。缺失、空列表或格式错误均拒绝，不从本地默认配置补授权。
+字段生成、原始新增和转换要求组件在本轮非空 components/componentCatalog/componentCapabilities 目录中，`supported:false` 不开放；规则目录的兼容组件引用不授予组件能力。生成、原始新增、属性/选项更新要求明确且非空 writableProps；仅未提供该键时才读取 editableProps，显式空列表不回退。新增优先使用组件 create 中的可写目录，未提供 create 时读取组件根目录；属性/选项更新仍读取根目录。缺失、空列表或格式错误均拒绝，不从本地默认配置补授权。
 
 字段定义仍只接受 client_ref、component_name、label、name、required、placeholder、options；未知槽位不得静默丢弃。组件生命周期动作仅接受已定义 payload，转换不接受未定义 props 补丁。宿主声明额外属性不会自动扩展模型输入 IR。
 

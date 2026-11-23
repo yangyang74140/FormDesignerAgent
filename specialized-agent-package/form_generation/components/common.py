@@ -71,9 +71,9 @@ COMMON_PROPERTIES = {
 
 
 def default_snapshot(props: Mapping[str, Any]) -> dict[str, Any]:
-    if "defaultValueConfig" not in props:
+    if "defaultValueConfig" not in props and "defaultValue" not in props:
         return {"exists": False}
-    mode = props["defaultValueConfig"]
+    mode = props.get("defaultValueConfig", "custom" if "defaultValue" in props else "undefined")
     value = {"mode": mode}
     if mode in ("custom", "formula") and "defaultValue" in props:
         value["value"] = deepcopy(props["defaultValue"])

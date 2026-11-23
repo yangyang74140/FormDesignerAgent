@@ -1,7 +1,7 @@
 """Input.TextArea properties and shared text behavior."""
 from ..common import boolean, number
 from ._shared import text
-from ._shared.text import clear, matches, normalize_copy, simulate, snapshot, validate
+from ._shared.text import clear, matches, normalize_copy, simulate, snapshot, validate, validate_candidate
 
 PROPERTIES = {
     **text.PROPERTIES,

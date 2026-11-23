@@ -60,7 +60,7 @@ class ComponentRules:
         if "value" in slots:
             reject("UNEXPECTED_VALUE", "clear/unset/reset 不携带 value。")
         if op == "unset":
-            if prop in ACCESS or prop in ("defaultValue", "textLengthLimit", "formatValidation", "label"):
+            if prop in ACCESS or prop in ("defaultValue", "textLengthLimit", "formatValidation", "numericRange", "selectionLimit", "label"):
                 reject("UNSET_UNSUPPORTED", "此语义属性不能用通用删除代替专用清空。")
             if prop not in ("titleAlign", "titlePosition") and not definition.get("allowUnset"):
                 reject("UNSET_UNSUPPORTED", "该属性不支持删除局部覆盖。")

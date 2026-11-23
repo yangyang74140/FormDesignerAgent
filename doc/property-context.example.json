@@ -1,37 +1,145 @@
 {
   "requestId": "request-property-example",
   "schemaVersion": "1.1.0",
-  "target": {"schemaId": "form-example", "revision": "rev-1"},
-  "selection": {"nodeId": "field-example"},
-  "canvas": {"layoutMode": "flow", "device": "pc", "isBlank": false},
+  "target": {
+    "schemaId": "form-example",
+    "revision": "rev-1"
+  },
+  "selection": {
+    "nodeId": "field-example"
+  },
+  "canvas": {
+    "layoutMode": "flow",
+    "device": "pc",
+    "isBlank": false
+  },
   "currentSchema": {
     "schemaVersion": "1.1.0",
     "id": "form-example",
     "layoutMode": "flow",
-    "props": {"textAlign": "left", "labelPosition": "left"},
-    "fields": [{
-      "id": "field-example",
-      "componentName": "Input",
-      "componentCategory": "field",
-      "isSaved": true,
-      "props": {
-        "label": "申请说明", "name": "application_note", "placeholder": "",
-        "required": false, "size": "medium", "defaultValueConfig": "undefined",
-        "access": {"visible": true, "editable": true, "required": false, "forbidManualInput": false}
+    "props": {
+      "textAlign": "left",
+      "labelPosition": "left"
+    },
+    "fields": [
+      {
+        "id": "field-example",
+        "componentName": "Input",
+        "componentCategory": "field",
+        "isSaved": true,
+        "props": {
+          "label": "申请说明",
+          "name": "application_note",
+          "placeholder": "",
+          "required": false,
+          "size": "medium",
+          "defaultValueConfig": "undefined",
+          "access": {
+            "visible": true,
+            "editable": true,
+            "required": false,
+            "forbidManualInput": false
+          }
+        }
       }
-    }]
+    ]
   },
   "capabilities": {
     "catalogVersion": "component-properties.v1",
-    "actions": ["form.apply_property_change"],
-    "components": {"Input": {"properties": {
-      "placeholder": {"title": "占位提示", "aliases": ["提示文字", "水印文字"], "valueSchema": {"type": "string"}, "operations": ["set", "clear", "reset", "query"], "default": ""},
-      "required": {"title": "必填", "aliases": ["不能为空", "必添"], "valueSchema": {"type": "boolean"}, "operations": ["set", "reset", "query"], "default": false, "handler": "field-access.required"},
-      "size": {"title": "组件尺寸", "valueSchema": {"type": "string", "enum": ["small", "medium", "large"]}, "operations": ["set", "reset", "query"], "default": "medium"}
-    }}},
-    "nodePolicies": {"field-example": {"canRead": true, "canModify": true, "allowedProperties": ["placeholder", "required", "size"], "forbiddenProperties": {"name": "已有字段不可改名", "identifiers": "不可更改身份标识"}}}
+    "actions": [
+      "form.apply_property_change"
+    ],
+    "components": {
+      "Input": {
+        "properties": {
+          "placeholder": {
+            "title": "占位提示",
+            "aliases": [
+              "提示文字",
+              "水印文字"
+            ],
+            "valueSchema": {
+              "type": "string"
+            },
+            "operations": [
+              "set",
+              "clear",
+              "reset",
+              "query"
+            ],
+            "default": ""
+          },
+          "required": {
+            "title": "必填",
+            "aliases": [
+              "不能为空",
+              "必添"
+            ],
+            "valueSchema": {
+              "type": "boolean"
+            },
+            "operations": [
+              "set",
+              "reset",
+              "query"
+            ],
+            "default": false,
+            "handler": "field-access.required"
+          },
+          "size": {
+            "title": "组件尺寸",
+            "valueSchema": {
+              "type": "string",
+              "enum": [
+                "small",
+                "medium",
+                "large"
+              ]
+            },
+            "operations": [
+              "set",
+              "reset",
+              "query"
+            ],
+            "default": "medium"
+          }
+        }
+      }
+    },
+    "nodePolicies": {
+      "field-example": {
+        "canRead": true,
+        "canModify": true,
+        "allowedProperties": [
+          "placeholder",
+          "required",
+          "size"
+        ],
+        "forbiddenProperties": {
+          "name": "已有字段不可改名",
+          "identifiers": "不可更改身份标识"
+        }
+      }
+    }
   },
-  "resolvedProperties": {"field-example": {"required": {"value": false, "source": "local", "sourcePath": ["props", "access", "required"]}}},
-  "history": {"canUndo": false},
-  "supportedActionVersions": {"form.apply_property_change": ["form_property_actions.v1"]}
+  "resolvedProperties": {
+    "field-example": {
+      "required": {
+        "stored": {
+          "exists": true,
+          "value": false
+        },
+        "resolvedValue": false,
+        "source": "local"
+      }
+    }
+  },
+  "history": {
+    "canUndo": false
+  },
+  "supportedActionVersions": {
+    "form.apply_property_change": [
+      "form_property_actions.v1"
+    ]
+  }
 }

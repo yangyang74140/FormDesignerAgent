@@ -7,7 +7,8 @@ canRead/canModify/allowedProperties; legacy top-level nodePolicies with explicit
 writable/saved/disabledName/system is also accepted. Saved-lock properties always
 need saved/disabledName information. Structured values require a handlerId and a
 bounded JSON schema. supportedActionVersions maps action names to exact versions.
-resolvedProperties[id][property] supplies source/resolvedValue for query and copy.
+resolvedProperties[id][property] supplies validated stored state for preconditions
+and source/resolvedValue for query and copy.
 
 Registered ruleCatalog/linkageCatalog entries contain handlerId, valueSchema,
 operations and compatible components. Linkages additionally declare astOperators.
@@ -201,8 +202,18 @@ def _snapshot(node: Mapping[str, Any], prop: str) -> dict[str, Any]:
     return get_component_rules(node["componentName"]).snapshot(node, prop)
 
 
+def _stored(node: dict[str, Any], prop: str, context: Mapping[str, Any]) -> dict[str, Any]:
+    host = context.get("resolvedProperties", {}).get(node["id"], {}).get(prop)
+    if isinstance(host, dict) and "stored" in host:
+        state = host["stored"]
+        if not isinstance(state, dict) or type(state.get("exists")) is not bool or set(state) - {"exists", "value"} or state["exists"] != ("value" in state) or not _json_safe(state):
+            _reject("INVALID_RESOLVED_PROPERTY", "宿主 stored 属性快照无效。")
+        return deepcopy(state)
+    return _snapshot(node, prop)
+
+
 def _resolved(node: dict[str, Any], prop: str, definition: dict[str, Any], context: Mapping[str, Any]) -> dict[str, Any]:
-    stored = _snapshot(node, prop)
+    stored = _stored(node, prop, context)
     host = context.get("resolvedProperties", {}).get(node["id"], {}).get(prop)
     if host is not None:
         if not isinstance(host, dict) or host.get("source") not in ("local", "inherited", "default") or "resolvedValue" not in host:
@@ -432,7 +443,7 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
                 _policy(node, prop, definition, context)
                 _version(context, "form.apply_property_change")
                 action_name = "form.apply_property_change"
-                before = _snapshot(node, prop)
+                before = _stored(node, prop, context)
                 payload = {"nodeId": node["id"], "componentName": node["componentName"], "property": prop, "operation": op}
                 if op == "copy":
                     if "value" in slots or not isinstance(slots.get("source_node_id"), str):
@@ -457,6 +468,8 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
                 if after["exists"] and op not in get_component_rules(node["componentName"]).properties[prop].unvalidated_operations:
                     validations.append((node["id"], prop, deepcopy(after["value"]), definition))
                 effects = get_component_rules(node["componentName"]).simulate(next_node, prop, after)
+                if prop == "textLengthLimit":
+                    after = _snapshot(next_node, prop)
                 conditions.append((node["id"], prop, definition, len(rows)))
             else:
                 _reject("UNSUPPORTED_CAPABILITY", "属性提案包含不受支持的 IR 能力。")

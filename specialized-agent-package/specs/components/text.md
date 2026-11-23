@@ -14,4 +14,4 @@ Input 专有：allowClear 默认 false；isUnique 需真实服务；uniqueMessag
 
 Input.TextArea 专有：rows 为 3–10 的有限数值，默认 3；disableAutoHeight、showEmptyLines 为布尔。不继承 Input 的 allowClear、唯一性与文本格式校验属性。公共族组合不能意外将单行专有能力开放给多行文本。
 
-默认值 clear 成对设置 defaultValueConfig 为字符串 undefined 并删除静态值；reset 采用宿主声明或内置规则。placeholder 默认均为空字符串。权限与继承行为见公共规则。
+长度配置快照始终带 maxLength，缺省为 200；关闭保留历史阈值。最终静态默认文本不得超过启用的长度限制。默认值 clear 成对设置 defaultValueConfig 为字符串 undefined 并删除静态值；reset 采用宿主声明或内置规则。placeholder 默认均为空字符串。权限与继承行为见公共规则。

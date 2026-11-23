@@ -4,13 +4,13 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from ...common import PropertyRule, boolean, default_snapshot, number, simulate_default, string, validate_default
-from ...validation import validate_schema
+from ...validation import reject, validate_schema
 
 _LENGTH_SCHEMA = {"type": "number", "minimum": 1}
 PROPERTIES = {
     "placeholder": string(reset="", has_reset=True),
-    "defaultValue": PropertyRule(),
-    "textLengthLimit": number(1, reset={"enabled": False, "maxLength": 200}, has_reset=True, unvalidated_operations=("clear",)),
+    "defaultValue": PropertyRule(unvalidated_operations=("clear", "reset")),
+    "textLengthLimit": number(1, reset={"enabled": False, "maxLength": 200}, has_reset=True, unvalidated_operations=("clear", "reset")),
     "showLimitHint": boolean(),
     "textMaxLength": number(1, default=200, has_default=True, prerequisite="showLimitHint"),
     "enableQuickCopy": boolean(),
@@ -23,7 +23,7 @@ def snapshot(node: Mapping[str, Any], prop: str) -> dict[str, Any] | None:
     if prop == "defaultValue":
         return default_snapshot(props)
     if prop == "textLengthLimit":
-        return {"exists": True, "value": {"enabled": props.get("showLimitHint", False), **({"maxLength": props["textMaxLength"]} if "textMaxLength" in props else {})}} if "showLimitHint" in props or "textMaxLength" in props else {"exists": False}
+        return {"exists": True, "value": {"enabled": props.get("showLimitHint", False), "maxLength": props.get("textMaxLength", 200)}} if "showLimitHint" in props or "textMaxLength" in props else {"exists": False}
     return None
 
 
@@ -32,7 +32,7 @@ def clear(node: Mapping[str, Any], prop: str) -> dict[str, Any] | None:
     if prop == "defaultValue":
         return {"exists": True, "value": {"mode": "undefined"}}
     if prop == "textLengthLimit":
-        return {"exists": True, "value": {"enabled": False, **({"maxLength": props["textMaxLength"]} if "textMaxLength" in props else {})}}
+        return {"exists": True, "value": {"enabled": False, "maxLength": props.get("textMaxLength", 200)}}
     return None
 
 
@@ -73,5 +73,13 @@ def normalize_copy(prop: str, value: Any) -> Any:
 def matches(prop: str, actual: Mapping[str, Any], after: Mapping[str, Any]) -> bool:
     if prop == "textLengthLimit":
         expected = after["value"]
-        return actual.get("value", {}).get("enabled") is False if isinstance(expected, dict) else actual.get("value", {}).get("enabled") is True and actual["value"].get("maxLength") == expected
+        return actual == after if isinstance(expected, dict) else actual.get("value", {}).get("enabled") is True and actual["value"].get("maxLength") == expected
     return actual == after
+
+
+def validate_candidate(node: Mapping[str, Any], prop: str) -> None:
+    props = node.get("props", {})
+    if prop in {"textLengthLimit", "defaultValue"} and props.get("defaultValueConfig") == "custom" and props.get("showLimitHint") is True:
+        default, maximum = props.get("defaultValue"), props.get("textMaxLength", 200)
+        if isinstance(default, str) and type(maximum) in (int, float) and len(default) > maximum:
+            reject("INVALID_DEFAULT_RANGE", "默认文本超过输入长度限制。")

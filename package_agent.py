@@ -8,7 +8,7 @@ import sys
 import zipfile
 
 
-REQUIRED_FILES = ("manifest.yaml", "bootstrap.py", "agent_definition.py", "README.md")
+REQUIRED_FILES = ("manifest.yaml", "bootstrap.py", "agent_definition.py", "README.md", "release_config.json")
 
 
 def validate_archive(path):
@@ -20,7 +20,7 @@ def validate_archive(path):
             if name not in names:
                 raise ValueError(f"ZIP root is missing {name}")
         for name in names:
-            if not name.endswith((".py", ".yaml", ".md")):
+            if not name.endswith((".py", ".yaml", ".md", ".json")):
                 continue
             try:
                 text = archive.read(name).decode("utf-8")

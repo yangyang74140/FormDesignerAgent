@@ -8,10 +8,10 @@ from ...common import PropertyRule, boolean, default_snapshot, simulate_default,
 from ...validation import reject, validate_schema
 
 PROPERTIES = {
-    "defaultValue": PropertyRule(),
+    "defaultValue": PropertyRule(unvalidated_operations=("clear", "reset")),
     "allowClear": boolean(reset=True, has_reset=True),
-    "minTimeCondition": PropertyRule(handler_required=True),
-    "maxTimeCondition": PropertyRule(handler_required=True),
+    "minTimeCondition": PropertyRule(handler_required=True, reset=None, has_reset=True, unvalidated_operations=("clear", "reset")),
+    "maxTimeCondition": PropertyRule(handler_required=True, reset=None, has_reset=True, unvalidated_operations=("clear", "reset")),
 }
 
 
@@ -48,9 +48,9 @@ def validate_compound(node: dict[str, Any], prop: str, value: Any, original: lis
         elif source == "dynamic":
             mode = value.get("dynamicMode")
             if mode == "current":
-                allowed = common | {"dynamicMode"} | ({"dynamicAnchor"} if component == "DatePicker" else set())
-                anchors = {"today", "currentWeek", "currentMonth", "nextMonth", "currentQuarter", "currentYear"}
-                if set(value) - allowed or component == "DatePicker" and value.get("dynamicAnchor") not in anchors:
+                allowed = common | {"dynamicMode", "dynamicAnchor"}
+                anchors = {"today", "currentWeek", "currentMonth", "nextMonth", "currentQuarter", "currentYear"} if component == "DatePicker" else {"today"}
+                if set(value) - allowed or value.get("dynamicAnchor", "today" if component == "TimePicker" else None) not in anchors:
                     reject("INVALID_TIME_CONDITION", "动态当前时间分支参数无效。")
             elif component == "DatePicker" and mode in ("before", "after"):
                 if set(value) != common | {"dynamicMode", "dynamicUnit", "offsetValue"} or value["dynamicUnit"] not in ("day", "week", "month", "quarter", "year"):
@@ -97,6 +97,21 @@ def effects(node: dict[str, Any], prop: str, value: Any, previous: Any) -> list[
             result.append("日期 day/week/month/quarter/year 使用 1/7/30/90/365 天近似偏移")
         return result
     return None
+
+
+def validate_candidate(node: Mapping[str, Any], prop: str) -> None:
+    props = node.get("props", {})
+    if prop not in {"defaultValue", "format", "minTimeCondition", "maxTimeCondition"}:
+        return
+    default = props.get("defaultValue")
+    if props.get("defaultValueConfig") == "custom" and isinstance(default, str):
+        validate_date(default, props.get("format"))
+        for bound in ("minTimeCondition", "maxTimeCondition"):
+            condition = props.get(bound)
+            if isinstance(condition, dict) and condition.get("enabled") is True and condition.get("source") == "fixed":
+                fixed = condition.get("fixedValue")
+                if isinstance(fixed, str) and (default < fixed if bound == "minTimeCondition" else default > fixed):
+                    reject("INVALID_DEFAULT_RANGE", "默认日期或时间超出固定范围。")
 
 
 def dependencies(prop: str) -> tuple[str, ...]:

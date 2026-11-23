@@ -45,7 +45,7 @@
 | `form.property.linkage` | operation=add/replace/remove、linkage_type、linkage_id、value | `form.apply_property_linkage` |
 | `form.property.undo` | transaction_id | `form.undo_property_transaction`；只允许真实当前可撤销事务 |
 
-修改提案保留 `protocol=form-agent.v1`、`contractVersion=form_property_proposal.v1`，顶层为 `mode=append`、`actionVersion=form_property_actions.v1` 和 actions。每条动作都有唯一 actionId、action、payload、dependsOn 数组及 display.selectedByDefault；属性变更、规则和联动动作还需 `preconditions.before={exists,value?}`。原状态从生成时快照读取：exists=false 不带 value；显式 false/null/0/空字符串不能被当作不存在，继承有效值不能冒充本地存储状态。规则/联动的 before 对应被修改配置的原语义值；不存在的配置用 exists=false。
+修改提案保留 `protocol=form-agent.v1`、`contractVersion=form_property_proposal.v1`，顶层为 `mode=append`、`actionVersion=form_property_actions.v1` 和 actions。每条动作都有唯一 actionId、action、payload、dependsOn 数组及 display.selectedByDefault；属性变更、规则和联动动作还需 `preconditions.before={exists,value?}`。原状态优先读取 resolvedProperties[nodeId][property].stored，要求仅含 exists/value、exists 为布尔且与 value 是否存在一致，并为有限 JSON；没有 stored 时由组件规则读取本地快照。exists=false 不带 value；显式 false/null/0/空字符串不能被当作不存在，继承有效值不能冒充本地存储状态。规则/联动的 before 对应被修改配置的原语义值；不存在的配置用 exists=false。
 
 修改 payload 包含 nodeId、componentName、property、operation。set 的新值只在 payload.value；copy 固定 sourceNodeId/sourceProperty 和既有来源读取快照，复制值只在 payload.value；sourceSnapshot 是来源前置状态，不另造展示用目标新值副本。clear/unset/reset 不携带 value。before 是并发前置状态，不是重复新值；不得另加 after 或展示用目标新值。可选 display.effects 仅用字符串解释派生影响，例如“同时开启显示和编辑”，不作为写入指令。
 

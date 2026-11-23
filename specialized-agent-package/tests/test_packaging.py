@@ -197,6 +197,7 @@ class PackagingTests(unittest.TestCase):
             self.assertIn(f"form_generation/components/definitions/{module}.py", names)
         for module in ("text", "temporal", "choice"):
             self.assertIn(f"form_generation/components/definitions/_shared/{module}.py", names)
+        self.assertIn("release_config.json", names)
         self.assertIn("specs/actions.md", names)
         self.assertIn("specs/components/temporal.md", names)
         self.assertFalse(any("tests/" in name or "__pycache__/" in name for name in names))

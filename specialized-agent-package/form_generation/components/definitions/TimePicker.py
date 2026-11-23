@@ -1,7 +1,7 @@
 """TimePicker properties and shared time-range behavior."""
 from ..common import enum, number, string
 from ._shared import temporal
-from ._shared.temporal import clear, dependencies, effects, simulate, snapshot, validate, validate_compound
+from ._shared.temporal import clear, dependencies, effects, simulate, snapshot, validate, validate_candidate, validate_compound
 
 PROPERTIES = {
     **temporal.PROPERTIES,

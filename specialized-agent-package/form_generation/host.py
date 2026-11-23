@@ -64,16 +64,27 @@ def component_catalog(value: Any) -> dict[str, dict[str, Any]]:
     return result
 
 
-def validate_writable_props(component: str, props: Mapping[str, Any], capabilities: Any) -> None:
+def writable_props(component: str, capabilities: Any, *, creation: bool = False) -> set[str]:
     metadata = require_component(component, capabilities)
+    if creation and isinstance(metadata.get("create"), Mapping):
+        metadata = metadata["create"]
     raw = metadata.get("writableProps") if "writableProps" in metadata else metadata.get("editableProps")
     if not isinstance(raw, list) or not raw or any(not isinstance(item, str) or not item for item in raw):
-        prefix = "暂时还不支持禁用：" if "disabled" in props else ""
         raise CapabilityUnavailable(
             "MISSING_WRITABLE_PROPS",
-            f"{prefix}{component} 缺少有效的宿主可写属性目录，暂时无法生成属性配置。",
+            f"{component} 缺少有效的宿主可写属性目录，暂时无法生成属性配置。",
         )
-    unsupported = set(props) - set(raw)
+    return set(raw)
+
+
+def validate_writable_props(component: str, props: Mapping[str, Any], capabilities: Any, *, creation: bool = False) -> None:
+    try:
+        writable = writable_props(component, capabilities, creation=creation)
+    except CapabilityUnavailable as error:
+        if "disabled" in props:
+            raise CapabilityUnavailable(error.code, "暂时还不支持禁用：" + str(error)) from error
+        raise
+    unsupported = set(props) - writable
     if unsupported:
         reject_properties(component, unsupported, "存在宿主不可写属性")
 

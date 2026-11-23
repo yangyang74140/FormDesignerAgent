@@ -12,7 +12,7 @@ from .action_rules import ACTION_KINDS, CLIENT_REF_PATTERN, action_capabilities,
 from .components import FLOW_COMPONENTS, OPTION_COMPONENTS
 from .host import (
     CapabilityUnavailable, component_catalog, component_names, node_index, reject_properties,
-    require_component, target_node_id, validate_writable_props,
+    require_component, target_node_id, validate_writable_props, writable_props,
 )
 from .properties import compile_property_proposal, property_capabilities
 from .drafts import set_action_draft
@@ -318,7 +318,7 @@ def _compile_form_fields(
         _validate_schema(schema, context)
     insertion_index = _field_insertion_index(slots.get("target"), existing, context) if mode == "append" else 0
 
-    version = _action_version(context)
+    version = _action_version(context, {"form.add_component"})
     supported_actions = _supported_actions(context)
     if "form.add_component" not in supported_actions:
         raise CapabilityUnavailable("ACTION_UNSUPPORTED", "宿主未声明 form.add_component，暂时无法生成完整表单。")
@@ -440,7 +440,12 @@ def _compile_field(
         raise ValueError("字段 label 不能为空")
     _validate_field_name(name, context, seen_names)
 
-    props: dict[str, Any] = {"label": label, "name": name, "required": slots.get("required") is True}
+    if "required" in slots and type(slots["required"]) is not bool:
+        raise ValueError("required 必须为 boolean")
+    props: dict[str, Any] = {"label": label, "name": name}
+    writable = writable_props(component, context.get("capabilities"), creation=True)
+    if "required" in writable or slots.get("required") is True or ("required" in slots and component != "Switch"):
+        props["required"] = slots.get("required") is True
     placeholder = _text(slots.get("placeholder"))
     if placeholder:
         if component == "Switch":
@@ -451,7 +456,7 @@ def _compile_field(
         props["options"] = _normalize_options(raw_options, context)
     elif isinstance(raw_options, list) and raw_options:
         raise ValueError(f"{component} 不支持 options")
-    validate_writable_props(component, props, context.get("capabilities"))
+    validate_writable_props(component, props, context.get("capabilities"), creation=True)
 
     seen_refs.add(client_ref)
     seen_names.add(name)
@@ -468,7 +473,6 @@ def _compile_form_actions(
     items: list[Mapping[str, Any]],
     context: Mapping[str, Any],
 ) -> None:
-    version = _action_version(context)
     supported_actions = _supported_actions(context)
     if not supported_actions:
         raise CapabilityUnavailable("ACTION_UNSUPPORTED", "宿主 capabilities 未声明可执行表单动作。")
@@ -477,6 +481,7 @@ def _compile_form_actions(
         raise ValueError("form_actions 提案不能混入字段定义")
     if not action_items:
         raise ValueError("ready 的 form_actions 提案至少包含一个动作")
+    version = _action_version(context, {_text(item.get("capability")) for item in action_items})
     actions = []
     batch_refs: set[str] = set()
     existing_nodes = node_index(context.get("currentSchema", {}))
@@ -666,23 +671,38 @@ def _is_blank_canvas(context: Mapping[str, Any]) -> bool:
     return isinstance(fields, list) and not fields and canvas.get("isBlank") is not False
 
 
-def _action_version(context: Mapping[str, Any]) -> str:
+def _action_version(context: Mapping[str, Any], actions: set[str]) -> str:
+    """Negotiate one legacy batch version from only the actions being emitted."""
     versions = context.get("supportedActionVersions")
-    candidates: list[str] = []
-    if isinstance(versions, Mapping):
-        for key, value in versions.items():
-            if isinstance(value, str):
-                candidates.append(value)
-            elif value is True and isinstance(key, str):
-                candidates.append(key)
-            elif isinstance(value, list):
-                candidates.extend(str(item) for item in value)
-    elif isinstance(versions, list):
-        candidates.extend(str(item) for item in versions)
-    candidates = [item for item in candidates if item.strip()]
-    if not candidates:
+    preference = ("form_actions.v2", "form_actions.v1", "1.0")
+
+    def candidates(value: Any) -> set[str]:
+        if isinstance(value, str):
+            return {value}
+        if isinstance(value, list):
+            return {item for item in value if isinstance(item, str)}
+        if isinstance(value, Mapping):
+            if "versions" in value or "schemaVersions" in value:
+                return candidates(value.get("versions", value.get("schemaVersions")))
+            return {key for key, enabled in value.items() if enabled is True and isinstance(key, str)}
+        return set()
+
+    if not versions:
         raise CapabilityUnavailable("ACTION_VERSION_UNSUPPORTED", "宿主未声明 supportedActionVersions，不能交付可执行动作。")
-    return sorted(candidates)[-1]
+    if isinstance(versions, Mapping) and any(isinstance(key, str) and key.startswith("form.") for key in versions):
+        common = set(preference)
+        for action in sorted(actions):
+            declared = candidates(versions.get(action))
+            if not declared.intersection(preference):
+                raise CapabilityUnavailable("ACTION_VERSION_UNSUPPORTED", f"宿主未声明 {action} 的受支持动作版本，不能借用其他动作版本。")
+            common.intersection_update(declared)
+    else:
+        # Older hosts declare a single global legacy protocol list or version map.
+        common = candidates(versions).intersection(preference)
+    for version in preference:
+        if version in common:
+            return version
+    raise CapabilityUnavailable("ACTION_VERSION_UNSUPPORTED", "本批动作没有共同支持的动作版本，不能生成混合版本提案。")
 
 
 def _proposal_target(context: Mapping[str, Any]) -> dict[str, Any]:

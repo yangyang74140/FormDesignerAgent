@@ -6,13 +6,13 @@ from typing import Any, Mapping
 from ..common import PropertyRule, enum, string
 from ..validation import reject
 from ._shared import temporal
-from ._shared.temporal import simulate, snapshot, validate
+from ._shared.temporal import simulate, snapshot, validate, validate_candidate
 
 PROPERTIES = {
     **temporal.PROPERTIES,
     "placeholder": string(reset="年-月-日", has_reset=True),
     "format": enum(["YYYY", "YYYY-MM", "YYYY-MM-DD", "YYYY-MM-DD HH", "YYYY-MM-DD HH:mm", "YYYY-MM-DD HH:mm:ss"], reset="YYYY-MM-DD", has_reset=True, saved_lock=True),
-    "disabledDays": PropertyRule(handler_required=True),
+    "disabledDays": PropertyRule(handler_required=True, reset=None, has_reset=True, unvalidated_operations=("clear", "reset")),
 }
 
 

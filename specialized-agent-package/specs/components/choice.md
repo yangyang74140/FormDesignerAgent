@@ -21,7 +21,8 @@ SelectSingle、SelectMulti 支持[公共属性规则](../properties.md)及选项
 | popupMatchSelectWidth、showSearch | 布尔 | 布尔 |
 | selectAll、supportReverseSelect | 不支持 | 布尔；反选默认 true |
 | maxCountEnable/maxTagCount/maxCountMessage | 不支持 | 开关、至少 1 的有限数值、字符串；后两项依赖开关 |
+| selectionLimit | 不支持 | `{count:1–1000整数,message?:最多200字字符串}`；需要宿主 schema/handler；clear/reset 为 null，关闭并清理数量和提示 |
 
-设置默认值同步 dataSource[].activeKey；更新选项同步默认值与颜色开关。原始 label 不能替代 value。复制默认值仍需检查目标真实选项存在且启用。
+设置默认值同步 dataSource[].activeKey；更新选项同步默认值与颜色开关。SelectMulti 最终默认项数量不得超过已启用的选择数量限制。原始 label 不能替代 value。复制默认值仍需检查目标真实选项存在且启用。
 
 relatedField 需要专用处理器和远程元数据。options 修改需要明确保存锁状态；已保存字段不开放该属性路径。placeholder 默认“请选择”。

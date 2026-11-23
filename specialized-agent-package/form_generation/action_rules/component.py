@@ -52,7 +52,7 @@ def validate_add(payload: dict[str, Any], context: Mapping[str, Any], nodes: Map
     if "props" in payload and not isinstance(payload["props"], Mapping):
         raise ValueError("新增组件 props 必须是对象")
     props = payload.get("props", {})
-    validate_writable_props(component, props, context.get("capabilities"))
+    validate_writable_props(component, props, context.get("capabilities"), creation=True)
     validate_position(payload.get("target"), nodes, context)
 
 

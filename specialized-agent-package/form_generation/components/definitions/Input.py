@@ -23,7 +23,7 @@ PROPERTIES = {
 def snapshot(node: Mapping[str, Any], prop: str) -> dict[str, Any] | None:
     if prop == "formatValidation":
         props = node.get("props", {})
-        return {"exists": True, "value": {"format": props["format"], **({"message": props["formatMessage"]} if "formatMessage" in props else {})}} if "format" in props else {"exists": False}
+        return {"exists": True, "value": {"format": props.get("format", "none"), **({"message": props["formatMessage"]} if "formatMessage" in props else {})}} if "format" in props or "formatMessage" in props else {"exists": False}
     return text.snapshot(node, prop)
 
 
@@ -60,6 +60,7 @@ def simulate(node: dict[str, Any], prop: str, after: Mapping[str, Any]) -> list[
 
 
 def validate_candidate(node: Mapping[str, Any], prop: str) -> None:
+    text.validate_candidate(node, prop)
     if prop == "formatMessage" and node.get("props", {}).get("format", "none") == "none":
         reject("PROPERTY_CONDITION_UNMET", "格式提示需要启用格式校验。", True)
 

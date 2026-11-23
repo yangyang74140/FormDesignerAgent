@@ -11,7 +11,7 @@
 | allowClear | 布尔，默认 true | 布尔，默认 true |
 | 专有配置 | disabledDays | minuteStep/secondStep：有限数值 1–59，默认 1 |
 
-默认值使用 `{mode:"custom",value:"..."}`；非 custom 不携带 value。公式模式未开放。按整批最终格式校验，不能因为 IR 顺序不同接受不匹配的默认值。默认值及范围对本批 format 修改建立选择依赖。
+默认值使用 `{mode:"custom",value:"..."}`；非 custom 不携带 value。最终静态默认日期或时间不得超出已启用的固定范围。公式模式未开放。按整批最终格式校验，不能因为 IR 顺序不同接受不匹配的默认值。默认值及范围对本批 format 修改建立选择依赖。
 
 ## 时间范围
 
@@ -19,7 +19,7 @@ minTimeCondition/maxTimeCondition 需要专用 handler 与有界 schema；clear 
 
 - fixed：只带 fixedValue，按组件 format 校验；同时启用固定上下界时比较先后。
 - field：只带 fieldName；引用真实且唯一的其他同类字段，禁止自引用。
-- dynamic/current：TimePicker 只支持当前时间；DatePicker 还需 dynamicAnchor=today/currentWeek/currentMonth/nextMonth/currentQuarter/currentYear。
+- dynamic/current：TimePicker 只支持当前时间，dynamicAnchor 可省略或为 today；DatePicker 需 dynamicAnchor=today/currentWeek/currentMonth/nextMonth/currentQuarter/currentYear。
 - dynamic/before 或 after：仅 DatePicker，带 dynamicUnit=day/week/month/quarter/year 和非负 offsetValue。当前说明使用 1/7/30/90/365 天近似偏移，不能宣称完整日历月算法。
 
 ## 日期专有联动
