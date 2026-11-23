@@ -57,19 +57,21 @@ Agent 依据宿主真实上下文生成建议；ai-chat 展示并维护用户确
 6. 组件种类、属性、类型、默认值及支持范围必须有宿主真实源码、已核验资料或实际 capabilities 作为依据，不根据组件名称或常见控件经验自行猜测。现有 Agent 注册仅代表本地实现范围，不证明宿主支持；缺少依据时标为待核验，不擅自新增或推广。
 7. 能力缺失必须明确拒绝并说明原因，不能静默省略用户要求后返回可执行提案。例如姓名字段可使用 Input，但未声明禁用属性及写入规则时，应说明“暂时还不支持禁用”；不得猜 disabled/readOnly、擅自改成 edit=false/access 或用禁止手工编辑替代禁用。
 
-## 5. 已确认的输出收敛方向
+## 5. 已确认的单一动作输出契约
 
-以下是用户已确认的后续实施约束，**不表示当前源码已全部完成调整**：
+以下为本次统一实施的业务契约。Agent 与 ai-chat 按共同契约调整；**本次不修改设计器宿主，其解析、复验和应用链路仍须接入，不能据此宣称已经部署或可直接执行**。
 
-- 目前尚未正式使用，不需要兼容旧输出、迁移历史数据或维护双格式解析。
-- 不围绕 FormSchema 版本设计兼容门禁，也不为本次结构调整新增 v1/v2 分流。
-- 动作集合统一使用 `actions`，每条使用 `action` 和 `payload`，不引入 `op` 或用另一份 `changes` 数组重复表达执行动作。
-- 表单动作优先复用现有 `form.add_component`、`form.update_component`、`form.update_component_options`、`form.move_component`、`form.remove_component`、`form.convert_component` 等受控名称；能否执行仍以宿主实际声明和实现为准。
-- 字段业务配置仅保留在动作 payload 中；不再把同一份数据复制进 `presentation.fields`、`presentation.changes`、`result.actions` 等并列位置。
-- `presentation.kind` 使用注册组件 ID；字段确认使用 `shared.table-field-confirm`，presentation 只保留展示路由、标题等信息。
-- 用户手动编辑直接更新唯一的动作草稿，提交编辑并勾选后的动作；不能重新提交未编辑的原始载荷，也不另附一份重复字段列表或编辑副本。
-- 现有节点身份、新字段临时引用、位置、选择依赖、类型转换、属性清除及真实选项值必须有明确语义；尚未锁定的细节不能由各端分别设计。
-- 应用只更新画布，不等于保存；目标身份、修订冲突、组件能力、原子提交和幂等校验继续保留。
+- 最终 output 固定为 `{form_proposal: proposal}`；保留既有 `protocol/contractVersion`，`schemaVersion` 只作可选画布元数据。修改提案的 `mode/actionVersion/actions` 均位于 proposal 顶层，不再输出 `result`、`validation` 或重复字段/变更清单。
+- 每条动作为 `{actionId, action, payload, dependsOn, display}`；`dependsOn` 是 actionId 数组，`display.selectedByDefault` 为布尔值。属性变更另有 `preconditions.before={exists,value?}`；原状态只保留在此处，新值只保留在 payload。可选 `display.effects` 仅解释派生影响，不复制目标新值或执行指令。
+- 普通修改确认的 presentation 仅含 `kind/title`：字段使用 `shared.table-field-confirm`，属性使用 `shared.component-property-checklist`。只读 `component_property_query` 保留 `readOnly/items` 且不含动作；`component_property_undo` 保留专用撤销展示，动作仍在顶层，不转普通确认卡。
+- 保留现有表单动作名称和语义，包括组件生命周期动作及 `form.apply_property_change/rule/linkage`、`form.undo_property_transaction`；不另造同义名，不混用页面动作。模型输入 IR 不因输出调整而变化。
+- `set/copy` 的新值位于 payload.value；`clear/unset/reset` 不带 value，具体语义由已支持的组件规则与宿主处理器决定。不能附加 after 或第二份目标新值。
+- ai-chat 编辑唯一 actions 草稿，以 actionId 勾选，提交 `{proposal: 最终已编辑且已选择的提案}`；Apply 幂等键经宿主独立通道传递。不提交选择 ID 数组、edits 或另一份原始载荷；clientRef 仅是新节点身份，不是复选框 ID。
+- 动作顺序确定，dependsOn 引用本批其他动作且不得成环；引用本批新节点时必须依赖在前创建动作。用户缺选依赖时明确阻止，不静默代选。下标相关子集须重新验证；仅可对整批纯新增、显式 root index 连续且可证明独立的序列重算位置；其他复杂位置或无法保证语义的子集拒绝应用。
+- 字段编译器输出明确 root index，保留插入顺序。原始动作省略 root index 表示物理根列表末尾；字段 IR 默认追加则是最后一个字段之后、末尾非字段之前，两者不能混同。
+- 删除未应用建议只移除草稿动作，并复验引用与顺序；删除已有画布节点须使用受支持的 `form.remove_component`。类型转换和完整候选校验交给已支持处理器，缺少能力明确拒绝。
+- 生成时校验不授权用户编辑后的草稿。宿主仍须复验固定目标、revision、能力、before、依赖、引用、顺序与最终候选状态，原子应用并执行独立 Apply 幂等、撤销和保存分离。
+- 尚未正式使用，不兼容旧输出、不维护双格式解析或迁移，不因这次结构调整新增 v1/v2 分流或 FormSchema 版本门禁；真实平台事件名和最终 output 通道保持不变。
 
 ## 6. 按任务阅读与验证
 

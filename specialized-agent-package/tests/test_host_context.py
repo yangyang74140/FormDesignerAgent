@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 
-from test_form_field_list import blank_context
+from test_form_field_list import assert_non_executable, blank_context
 import test_output_preview
 
 
@@ -52,7 +52,7 @@ class HostContextBoundaryTests(IsolatedAsyncioTestCase):
                     self.assertEqual(proposal["requestId"], host["requestId"])
                     self.assertEqual(proposal["target"]["schemaId"], host["target"]["schemaId"])
                     self.assertEqual(proposal["target"]["baseRevision"], host["target"]["revision"])
-                    self.assertEqual(len(proposal["result"]["actions"]), 2)
+                    self.assertEqual(len(proposal["actions"]), 2)
 
     async def test_snapshot_is_isolated_from_generator_and_live_context_mutation(self):
         host = self.host()
@@ -111,7 +111,7 @@ class HostContextBoundaryTests(IsolatedAsyncioTestCase):
         proposal = result["output"]["form_proposal"]
         self.assertEqual(proposal["status"], "needs_clarification", result)
         self.assertEqual(proposal["diagnostics"][0]["code"], "HOST_CONTEXT_REQUIRED")
-        self.assertNotIn("result", proposal)
+        assert_non_executable(self, proposal)
         self.assertNotIn("component", result["output"])
         traces = result["diagnostics"]
         self.assertEqual([entry["stage"] for entry in traces], ["handler", "compiler"])

@@ -3,7 +3,7 @@
   "contractVersion": "form_property_proposal.v1",
   "schemaVersion": "1.1.0",
   "status": "ready",
-  "proposalId": "proposal-f0cfc4e74c932f1c",
+  "proposalId": "proposal-f7646887384dab00",
   "target": {
     "schemaId": "form-example",
     "baseRevision": "rev-1"
@@ -12,83 +12,58 @@
   "diagnostics": [],
   "requestId": "request-property-example",
   "catalogVersion": "component-properties.v1",
-  "presentation": {
-    "kind": "shared.component-property-checklist",
-    "title": "组件属性修改建议",
-    "items": [
-      {
-        "changeId": "change-5edd240b47068716070d",
+  "mode": "append",
+  "actionVersion": "form_property_actions.v1",
+  "actions": [
+    {
+      "actionId": "action-713834e51a204a938491",
+      "action": "form.apply_property_change",
+      "payload": {
         "nodeId": "field-example",
         "componentName": "Input",
         "property": "required",
-        "text": "申请说明 · required · set",
-        "selectedByDefault": true,
+        "operation": "set",
+        "value": true
+      },
+      "preconditions": {
         "before": {
           "exists": true,
           "value": false
-        },
-        "after": {
-          "exists": true,
-          "value": true
-        },
-        "actionIds": [
-          "action-5edd240b47068716070d"
-        ],
-        "dependsOn": [],
+        }
+      },
+      "dependsOn": [],
+      "display": {
+        "selectedByDefault": true,
         "effects": [
           "通过 access helper 同步权限及兼容 required；开启必填/禁止手工编辑会开启显示和编辑；关闭显示/编辑会关闭依赖权限"
         ]
-      },
-      {
-        "changeId": "change-e52178828edf5c1c0b99",
+      }
+    },
+    {
+      "actionId": "action-0e54997e42da7cc4717b",
+      "action": "form.apply_property_change",
+      "payload": {
         "nodeId": "field-example",
         "componentName": "Input",
         "property": "placeholder",
-        "text": "申请说明 · placeholder · set",
-        "selectedByDefault": true,
+        "operation": "set",
+        "value": "请输入申请说明"
+      },
+      "preconditions": {
         "before": {
           "exists": true,
           "value": ""
-        },
-        "after": {
-          "exists": true,
-          "value": "请输入申请说明"
-        },
-        "actionIds": [
-          "action-e52178828edf5c1c0b99"
-        ],
-        "dependsOn": [],
-        "effects": []
-      }
-    ]
-  },
-  "result": {
-    "kind": "form_actions",
-    "mode": "append",
-    "schemaVersion": "form_property_actions.v1",
-    "actions": [
-      {
-        "actionId": "action-5edd240b47068716070d",
-        "action": "form.apply_property_change",
-        "payload": {
-          "nodeId": "field-example",
-          "componentName": "Input",
-          "property": "required",
-          "operation": "set",
-          "value": true
         }
       },
-      {
-        "actionId": "action-e52178828edf5c1c0b99",
-        "action": "form.apply_property_change",
-        "payload": {
-          "nodeId": "field-example",
-          "componentName": "Input",
-          "property": "placeholder",
-          "operation": "set",
-          "value": "请输入申请说明"
-        }
+      "dependsOn": [],
+      "display": {
+        "selectedByDefault": true,
+        "effects": []
       }
-    ]
+    }
+  ],
+  "presentation": {
+    "kind": "shared.component-property-checklist",
+    "title": "组件属性修改建议"
   }
 }

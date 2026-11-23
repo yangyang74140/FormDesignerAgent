@@ -17,8 +17,9 @@
 
 ```text
 form_generation/
-├── proposal.py          # 统一编译入口、字段编译和当前展示投影
+├── proposal.py          # 统一编译入口、字段动作编译与顺序
 ├── properties.py        # 属性提案编排、宿主授权、批次依赖
+├── drafts.py            # 单一动作草稿、动作 ID 与依赖结构校验
 ├── host.py              # 宿主目录和节点身份读取
 ├── action_rules/
 │   ├── __init__.py      # 动作名称、能力声明与校验分派
@@ -47,17 +48,19 @@ form_generation/
 
 对外继续使用 `compile_form_proposal()`。内部通过 `action_rules.validate_action()` 校验动作，通过 `components.get_component_rules(componentName)` 获取已组合的规则；`property_names(componentName)` 提供属性集合。注册表返回的规则用于读取快照、操作语义、校验、模拟和依赖处理，宿主授权仍由属性编排层验证。
 
-## 当前实现与已确认目标
+## 单一动作输出契约与实施边界
 
-本次分层保持现有编译行为；本目录标为“当前”的载荷均描述现有实现。源码仍生成 `presentation.fields/changes/items` 和 `result.actions`，属性路径仍使用 `form.apply_property_change` 等动作。它们是当前行为，不表示已完成根目录 `AGENTS.md` 第 5 节的输出收敛。
+最终 output 为 `{form_proposal: proposal}`。修改提案以顶层 `mode/actionVersion/actions` 为唯一执行草稿；每条动作包含 `actionId/action/payload/dependsOn/display`，普通确认的 `presentation` 仅含注册 `kind/title`。属性变更的原状态在 `preconditions.before`，新值仅在 payload；不输出 result、validation、after 或重复字段/属性清单。查询仍是只读 `component_property_query` 的 items，无动作；撤销使用 `component_property_undo` 专用展示及顶层动作。
 
-已确认的后续目标包括：统一 `actions`，每条使用 `action/payload`；字段业务配置只保留在动作草稿；presentation 只保留路由和标题等展示信息；用户编辑并选择后提交同一份动作草稿。当前路径与目标的差异应在后续协议调整中统一处理，不因文件重组新增兼容层、版本分流或动作同义词。
+ai-chat 按 actionId 勾选并直接编辑唯一草稿，提交 `{proposal: 最终已编辑且已选择的提案}`，宿主独立接收 Apply 幂等键。依赖缺选不能静默代选；字段下标相关子集必须复验，只有整批纯新增、显式 root index 连续且可证明独立的序列可重算位置，其他复杂位置子集拒绝。名称、payload、前置条件与错误语义以[动作规范](./actions.md)和[属性规则](./properties.md)为准。
 
-规范描述三类事实时必须区分：
+保留既有 protocol、contractVersion、动作名称及模型输入 IR；schemaVersion 是可选画布元数据。此次结构调整不增加旧格式解析、迁移、v1/v2 分流或 FormSchema 版本门禁。平台事件和最终 output 通道沿用真实既有机制。
 
-- **Agent 已实现**：本地编译器具有对应规则，并有测试覆盖。
-- **依赖宿主声明**：每轮真实 capabilities、策略、处理器与修订信息是必要条件；本地注册不授予执行能力。
-- **后续目标或宿主待办**：不能以规范存在或 Agent 返回 ready 推断已经部署。
+**设计器宿主本次未修改，仍须完成新契约接入。** 规范存在或 Agent 返回 ready 均不证明宿主已经部署或具备执行能力。区分以下事实：
+
+- **Agent 实现**：以本地编译器和回归测试验证的行为为准。
+- **宿主授权**：每轮真实 capabilities、节点策略、处理器与修订信息共同决定能力；本地注册不授予执行能力。
+- **三端联调**：ai-chat 同期调整，宿主解析、编辑后复验、原子应用、幂等、撤销和保存仍须按[接入说明](../../doc/ai-chat-property-edit-integration.md)完成并验收。
 
 ## 维护规则
 

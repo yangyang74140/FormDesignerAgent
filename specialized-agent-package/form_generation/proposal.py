@@ -9,16 +9,16 @@ from copy import deepcopy
 from typing import Any, Mapping
 
 from .action_rules import ACTION_KINDS, CLIENT_REF_PATTERN, action_capabilities, validate_action
-from .components import COMPONENT_LABELS, FLOW_COMPONENTS, OPTION_COMPONENTS
+from .components import FLOW_COMPONENTS, OPTION_COMPONENTS
 from .host import (
     CapabilityUnavailable, component_catalog, component_names, node_index, reject_properties,
     require_component, target_node_id, validate_writable_props,
 )
 from .properties import compile_property_proposal, property_capabilities
+from .drafts import set_action_draft
 
 FORM_AGENT_PROTOCOL = "form-agent.v1"
 FORM_PROPOSAL_CONTRACT = "form_agent_proposal.v1"
-FORM_FIELD_LIST_CONTRACT = "form_field_list.v1"
 FORM_PROPOSAL_EVENT = "form.proposal.completed"
 FORM_PROPOSAL_PIPELINE = "form_proposal_generation"
 FORM_PROPOSAL_STEP = "form.proposal.generate"
@@ -75,7 +75,7 @@ def proposal_capabilities(context: Mapping[str, Any] | None = None) -> list[dict
             "capability": _FIELD_CAPABILITY,
             "semantics": (
                 "定义一个新表单字段的业务语义。不得输出 id、完整 Schema、Action 或组件内部属性；"
-                "Python 编译器负责生成展示字段和 form.add_component。"
+                "Python 编译器负责生成唯一 form.add_component 动作草稿。"
             ),
             "slots_schema": {
                 "type": "object",
@@ -338,7 +338,6 @@ def _compile_form_fields(
     if len(field_items) + sum(_is_field_node(field) for field in existing) > max_fields:
         raise ValueError(f"字段数量超过宿主限制: {max_fields}")
 
-    fields: list[dict[str, Any]] = []
     actions: list[dict[str, Any]] = []
     seen_refs: set[str] = {
         _text(field.get("clientRef") or field.get("id")) for field in existing
@@ -348,7 +347,6 @@ def _compile_form_fields(
     for index, item in enumerate(field_items):
         field_slots = item.get("slots") if isinstance(item.get("slots"), Mapping) else {}
         field = _compile_field(field_slots, context, seen_refs, seen_names)
-        fields.append(field)
         actions.append({
             "actionId": f"add-field-{index + 1:03d}",
             "action": "form.add_component",
@@ -360,25 +358,10 @@ def _compile_form_fields(
             },
         })
 
-    latest_fields = deepcopy(existing)
-    latest_fields[insertion_index:insertion_index] = fields
-    changes = [
-        {"operation": "insert", "index": insertion_index + index, "field": deepcopy(field)}
-        for index, field in enumerate(fields)
-    ]
-    _set_field_presentation(base, slots, latest_fields, changes, context)
-    base["result"] = {
-        "kind": "form_actions",
-        "mode": mode,
-        "schemaVersion": version,
-        "actions": actions,
-    }
-    base["validation"] = {
-        "status": "passed",
-        "schemaVersion": context["schemaVersion"],
-        "actionVersion": version,
-        "fieldCount": len(latest_fields),
-    }
+    set_action_draft(
+        base, actions, mode=mode, action_version=version,
+        kind="shared.table-field-confirm", title=_proposal_title(slots, context),
+    )
 
 
 def _is_field_node(node: Mapping[str, Any]) -> bool:
@@ -428,25 +411,9 @@ def _field_insertion_index(value: Any, fields: list, context: Mapping[str, Any])
     return matches[0] + (value["position"] == "after")
 
 
-def _set_field_presentation(
-    base: dict[str, Any], slots: Mapping[str, Any], fields: list,
-    changes: list[dict[str, Any]], context: Mapping[str, Any],
-) -> None:
-    display_fields = deepcopy(fields)
-    display_changes = deepcopy(changes)
-    for field in display_fields + [change["field"] for change in display_changes]:
-        component = _text(field.get("componentName"))
-        field.setdefault("componentLabel", _component_label(component, context.get("capabilities")))
+def _proposal_title(slots: Mapping[str, Any], context: Mapping[str, Any]) -> str:
     schema = context.get("currentSchema", {})
-    base["presentation"] = {
-        "kind": "shared.table-field-confirm",
-        "contractVersion": FORM_FIELD_LIST_CONTRACT,
-        "title": _text(slots.get("title") or schema.get("title"), "新表单" if _is_blank_canvas(context) else "表单字段"),
-        "layoutMode": "flow",
-        "fieldCount": len(display_fields),
-        "fields": display_fields,
-        "changes": display_changes,
-    }
+    return _text(slots.get("title") or schema.get("title"), "新表单" if _is_blank_canvas(context) else "表单字段")
 
 
 def _compile_field(
@@ -491,7 +458,6 @@ def _compile_field(
     return {
         "clientRef": client_ref,
         "componentName": component,
-        "componentLabel": _component_label(component, context.get("capabilities")),
         "props": props,
     }
 
@@ -513,6 +479,8 @@ def _compile_form_actions(
         raise ValueError("ready 的 form_actions 提案至少包含一个动作")
     actions = []
     batch_refs: set[str] = set()
+    existing_nodes = node_index(context.get("currentSchema", {}))
+    existing_refs = set(existing_nodes) | {_text(node.get("clientRef")) for node in existing_nodes.values()}
     for index, item in enumerate(action_items, start=1):
         action = _text(item.get("capability"))
         if action not in supported_actions:
@@ -520,28 +488,44 @@ def _compile_form_actions(
         action_slots = item.get("slots") if isinstance(item.get("slots"), Mapping) else {}
         payload = deepcopy(action_slots.get("payload")) if isinstance(action_slots.get("payload"), Mapping) else {}
         validate_action(action, payload, context, batch_refs)
+        if payload.get("useSelection") is True:
+            if not any(payload.get(key) for key in ("nodeId", "fieldId", "containerId")):
+                payload["nodeId"] = target_node_id(payload, context)
+            payload.pop("useSelection")
         action_id = _text(action_slots.get("action_id"), f"action-{index:03d}")
-        actions.append({"actionId": action_id, "action": action, "payload": payload})
+        references = _action_references(payload)
+        dependencies = [previous["actionId"] for previous in actions
+                        if previous["action"] == "form.add_component" and previous["payload"]["clientRef"] in references]
+        actions.append({"actionId": action_id, "action": action, "payload": payload, "dependsOn": dependencies})
         client_ref = _text(payload.get("clientRef"))
         if action == "form.add_component" and client_ref:
-            if client_ref in batch_refs:
+            if client_ref in batch_refs or client_ref in existing_refs:
                 raise ValueError(f"重复 clientRef: {client_ref}")
             batch_refs.add(client_ref)
     if _text(slots.get("mode"), "append") != "append":
         raise ValueError("增量动作必须使用 append，不能替换已有表单")
-    base["result"] = {
-        "kind": "form_actions",
-        "mode": "append",
-        "schemaVersion": version,
-        "actions": actions,
-    }
-    _project_action_fields(base, slots, actions, context)
+    _validate_action_sequence(actions, context)
+    set_action_draft(
+        base, actions, mode="append", action_version=version,
+        kind="shared.table-field-confirm", title=_proposal_title(slots, context),
+    )
 
 
-def _project_action_fields(
-    base: dict[str, Any], slots: Mapping[str, Any], actions: list[dict[str, Any]],
-    context: Mapping[str, Any],
-) -> None:
+def _action_references(value: Any) -> set[str]:
+    references: set[str] = set()
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            if key in {"fieldId", "nodeId", "fieldRef", "clientRef", "sourceFieldId", "targetFieldId"} and isinstance(child, str):
+                references.add(child)
+            else:
+                references.update(_action_references(child))
+    elif isinstance(value, list):
+        for child in value:
+            references.update(_action_references(child))
+    return references
+
+
+def _validate_action_sequence(actions: list[dict[str, Any]], context: Mapping[str, Any]) -> None:
     schema = context.get("currentSchema", {})
     fields = deepcopy(schema.get("fields"))
     canvas = context.get("canvas", {})
@@ -549,15 +533,14 @@ def _project_action_fields(
         return
     if _text(canvas.get("layoutMode") or schema.get("layoutMode"), "flow").lower() != "flow":
         return
-    changes = []
     for action in actions:
         payload = action["payload"]
         kind = action["action"]
         if kind == "form.add_component":
-            index = _field_insertion_index(payload.get("target"), fields, context)
+            target = payload.get("target", {})
+            index = len(fields) if target.get("kind") == "root" and "index" not in target else _field_insertion_index(target, fields, context)
             field = {key: deepcopy(payload[key]) for key in ("clientRef", "componentName", "props") if key in payload}
             fields.insert(index, field)
-            changes.append({"operation": "insert", "index": index, "field": deepcopy(field)})
             continue
         if kind not in {"form.update_component", "form.update_component_options", "form.convert_component", "form.remove_component", "form.move_component"}:
             continue
@@ -568,25 +551,16 @@ def _project_action_fields(
         field = fields[index]
         if kind == "form.remove_component":
             fields.pop(index)
-            changes.append({"operation": "remove", "index": index, "field": deepcopy(field)})
         elif kind == "form.move_component":
             fields.pop(index)
             target = payload.get("target", {})
-            destination = index if target.get("kind") == "relative" and target.get("anchorNodeId") == node_id else _field_insertion_index(target, fields, context)
-            fields.insert(destination, field)
-            changes.append({"operation": "move", "fromIndex": index, "index": destination, "field": deepcopy(field)})
-        else:
-            if kind == "form.update_component":
-                field.setdefault("props", {}).update(deepcopy(payload["changes"]))
-                if "label" in payload["changes"] and "fieldTitle" in field:
-                    field["fieldTitle"] = payload["changes"]["label"]
-            elif kind == "form.update_component_options":
-                field.setdefault("props", {})["options"] = deepcopy(payload.get("options"))
+            if target.get("kind") == "relative" and target.get("anchorNodeId") == node_id:
+                destination = index
+            elif target.get("kind") == "root" and "index" not in target:
+                destination = len(fields)
             else:
-                # Conversion defaults and migration belong to the host, not this display snapshot.
-                return
-            changes.append({"operation": "replace", "index": index, "field": deepcopy(field)})
-    _set_field_presentation(base, slots, fields, changes, context)
+                destination = _field_insertion_index(target, fields, context)
+            fields.insert(destination, field)
 
 
 def _validate_field_name(name: str, context: Mapping[str, Any], seen_names: set[str]) -> None:
@@ -667,14 +641,6 @@ def _collect_action_names(value: Any, output: set[str]) -> None:
                 output.add(child)
             else:
                 _collect_action_names(child, output)
-
-
-def _component_label(component: str, capabilities: Any) -> str:
-    metadata = component_catalog(capabilities).get(component, {})
-    return _text(
-        metadata.get("componentLabel") or metadata.get("title") or metadata.get("label"),
-        COMPONENT_LABELS.get(component, component),
-    )
 
 
 def _field_name_rules(context: Mapping[str, Any]) -> dict[str, Any]:

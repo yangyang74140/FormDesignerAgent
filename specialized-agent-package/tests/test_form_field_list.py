@@ -1,3 +1,4 @@
+from copy import deepcopy
 import sys
 import unittest
 from pathlib import Path
@@ -61,6 +62,83 @@ def compile_fields(fields, context=None):
     return compiled["output"]["form_proposal"]
 
 
+def assert_action_draft(test, proposal, kind="shared.table-field-confirm", property_actions=False):
+    test.assertNotIn("result", proposal)
+    test.assertNotIn("validation", proposal)
+    test.assertEqual(set(proposal["presentation"]), {"kind", "title"})
+    test.assertEqual(proposal["presentation"]["kind"], kind)
+    test.assertIsInstance(proposal["presentation"]["title"], str)
+    test.assertTrue(proposal["actionVersion"])
+    test.assertIn(proposal["mode"], {"append", "replace_empty_form"})
+    actions = proposal["actions"]
+    test.assertTrue(actions)
+    test.assertIsInstance(actions, list)
+    ids = [action["actionId"] for action in actions]
+    test.assertTrue(all(isinstance(action_id, str) and action_id.strip() for action_id in ids))
+    test.assertEqual(len(ids), len(set(ids)))
+    for action in actions:
+        expected = {"actionId", "action", "payload", "dependsOn", "display"}
+        if property_actions:
+            expected.add("preconditions")
+            test.assertEqual(set(action["preconditions"]), {"before"})
+        test.assertEqual(set(action), expected)
+        test.assertIsInstance(action["payload"], dict)
+        test.assertEqual(set(action["display"]), {"selectedByDefault", "effects"} if property_actions else {"selectedByDefault"})
+        test.assertIsInstance(action["display"]["selectedByDefault"], bool)
+        if property_actions:
+            test.assertIsInstance(action["display"]["effects"], list)
+            test.assertTrue(all(isinstance(effect, str) for effect in action["display"]["effects"]))
+        test.assertIsInstance(action["dependsOn"], list)
+        test.assertTrue(set(action["dependsOn"]) <= set(ids) - {action["actionId"]})
+
+
+def assert_non_executable(test, proposal):
+    for key in ("result", "validation", "actions", "presentation", "mode", "actionVersion"):
+        test.assertNotIn(key, proposal)
+
+
+def apply_field_actions(fields, actions):
+    """Apply lifecycle drafts to a private host copy without a preview response."""
+    fields = deepcopy(fields)
+
+    def insertion_index(target):
+        if target["kind"] == "root":
+            return target.get("index", len(fields))
+        anchor = next(index for index, field in enumerate(fields)
+                      if target["anchorNodeId"] in {field.get("id"), field.get("clientRef")})
+        return anchor + (target["position"] == "after")
+
+    for action in actions:
+        payload = action["payload"]
+        kind = action["action"]
+        if kind == "form.add_component":
+            field = {key: deepcopy(payload[key]) for key in ("clientRef", "componentName", "props") if key in payload}
+            fields.insert(insertion_index(payload["target"]), field)
+            continue
+        node_id = payload.get("nodeId") or payload.get("fieldId")
+        index = next(index for index, field in enumerate(fields)
+                     if node_id in {field.get("id"), field.get("clientRef")})
+        field = fields[index]
+        if kind == "form.update_component":
+            field.setdefault("props", {}).update(deepcopy(payload["changes"]))
+            if "label" in payload["changes"] and "fieldTitle" in field:
+                field["fieldTitle"] = payload["changes"]["label"]
+        elif kind == "form.update_component_options":
+            field.setdefault("props", {})["options"] = deepcopy(payload["options"])
+        elif kind == "form.remove_component":
+            fields.pop(index)
+        elif kind == "form.move_component":
+            fields.pop(index)
+            target = payload["target"]
+            destination = index if target.get("anchorNodeId") == node_id else insertion_index(target)
+            fields.insert(destination, field)
+        elif kind == "form.convert_component":
+            field["componentName"] = payload.get("componentName") or payload["targetComponentName"]
+        else:
+            raise AssertionError(f"Unsupported test action: {kind}")
+    return fields
+
+
 class FormFieldListTests(unittest.TestCase):
     def test_complete_field_list_and_actions_share_one_source(self):
         fields = [
@@ -82,23 +160,26 @@ class FormFieldListTests(unittest.TestCase):
         result = compile_fields(fields)
 
         self.assertEqual(result["contractVersion"], "form_agent_proposal.v1")
-        self.assertEqual(result["presentation"]["contractVersion"], "form_field_list.v1")
+        assert_action_draft(self, result)
         self.assertEqual(result["schemaVersion"], "1.0.0")
         self.assertEqual(result["requestId"], "req-onboarding")
-        self.assertEqual(result["presentation"]["kind"], "shared.table-field-confirm")
-        self.assertEqual(result["result"]["mode"], "replace_empty_form")
-        self.assertEqual(len(result["presentation"]["fields"]), 9)
-        self.assertEqual(len(result["result"]["actions"]), 9)
-        for index, (field, action) in enumerate(
-            zip(result["presentation"]["fields"], result["result"]["actions"])
-        ):
+        self.assertEqual(result["mode"], "replace_empty_form")
+        self.assertEqual(len(result["actions"]), 9)
+        for index, (definition, action) in enumerate(zip(fields, result["actions"])):
             payload = action["payload"]
-            self.assertNotIn("id", field)
+            self.assertEqual(action["action"], "form.add_component")
             self.assertNotIn("id", payload)
-            self.assertEqual(payload["clientRef"], field["clientRef"])
-            self.assertEqual(payload["componentName"], field["componentName"])
-            self.assertEqual(payload["props"], field["props"])
+            self.assertEqual(payload["clientRef"], definition["client_ref"])
+            self.assertEqual(payload["componentName"], definition["component_name"])
+            expected_props = {key: definition[key] for key in ("label", "name", "required")}
+            if definition["placeholder"]:
+                expected_props["placeholder"] = definition["placeholder"]
+            if definition["options"]:
+                expected_props["options"] = definition["options"]
+            self.assertEqual(payload["props"], expected_props)
             self.assertEqual(payload["target"], {"kind": "root", "index": index})
+        applied = apply_field_actions([], result["actions"])
+        self.assertEqual([field["clientRef"] for field in applied], [field["client_ref"] for field in fields])
 
     def test_full_generation_requires_blank_flow_schema_1_0(self):
         field = {"client_ref": "name", "component_name": "Input", "label": "姓名", "name": "name"}
@@ -120,7 +201,8 @@ class FormFieldListTests(unittest.TestCase):
             with self.subTest(version=version):
                 result = compile_fields([field], context)
                 self.assertEqual(result["status"], "ready")
-                self.assertEqual(result["presentation"]["fieldCount"], 1)
+                assert_action_draft(self, result)
+                self.assertEqual(len(result["actions"]), 1)
                 if version:
                     self.assertEqual(result["schemaVersion"], version)
 
@@ -150,8 +232,9 @@ class FormFieldListTests(unittest.TestCase):
             "client_ref": ref, "component_name": "Input", "label": f"字段 {index}", "name": f"field_{index}",
         } for index, ref in enumerate(refs)]
         result = compile_fields(fields)
-        self.assertEqual([field["clientRef"] for field in result["presentation"]["fields"]], refs)
-        self.assertEqual([action["payload"]["clientRef"] for action in result["result"]["actions"]], refs)
+        assert_action_draft(self, result)
+        self.assertEqual([action["payload"]["clientRef"] for action in result["actions"]], refs)
+        self.assertEqual([field["clientRef"] for field in apply_field_actions([], result["actions"])], refs)
         with self.assertRaisesRegex(ValueError, "重复 clientRef"):
             compile_fields([fields[0], {**fields[0], "name": "another_name"}])
         for ref in ("", "Student_no", "1student", "student no", "student.no", "学生", "student/no"):

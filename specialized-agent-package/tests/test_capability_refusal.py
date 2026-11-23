@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
 
-from test_form_field_list import blank_context, compile_fields
+from test_form_field_list import assert_non_executable, blank_context, compile_fields
 from test_form_proposal import compile_items, host_context
 from test_properties import change, host as property_host, run as compile_properties
 import test_output_preview
@@ -14,8 +14,7 @@ import test_output_preview
 class CapabilityRefusalTests(unittest.TestCase):
     def refused(self, proposal, reason):
         self.assertEqual(proposal["status"], "unsupported", proposal)
-        self.assertNotIn("result", proposal)
-        self.assertNotIn("presentation", proposal)
+        assert_non_executable(self, proposal)
         self.assertIn(reason, proposal["summary"])
         self.assertIn(reason, proposal["diagnostics"][0]["message"])
 
@@ -95,7 +94,7 @@ class CapabilityRefusalTests(unittest.TestCase):
         payload = {"clientRef": "person-name", "componentName": "Input", "props": {"label": "姓名", "name": "person_name"}, "target": {"kind": "root"}}
         result = compile_items(self.action_items("form.add_component", payload), context)
         self.assertEqual(result["status"], "ready")
-        self.assertEqual(result["result"]["actions"][0]["payload"]["props"], payload["props"])
+        self.assertEqual(result["actions"][0]["payload"]["props"], payload["props"])
         payload["props"]["disabled"] = True
         self.refused(compile_items(self.action_items("form.add_component", payload), context), "禁用")
         self.assertEqual(context.context, original)
@@ -111,7 +110,7 @@ class CapabilityRefusalTests(unittest.TestCase):
     def test_semantic_disabled_is_refused_without_inventing_an_edit_operation(self):
         result = compile_properties([change("disabled", True)])
         self.assertEqual(result["status"], "unsupported", result)
-        self.assertNotIn("result", result)
+        assert_non_executable(self, result)
         self.assertIn("暂时还不支持禁用", result["summary"])
         self.assertIn("disabled", result["diagnostics"][0]["message"])
 
@@ -141,7 +140,7 @@ class CapabilityRefusalTests(unittest.TestCase):
         context["currentSchema"]["fields"][0]["props"]["access"]["editable"] = True
         result = compile_properties([change("edit", False)], context)
         self.assertEqual(result["status"], "ready", result)
-        self.assertEqual(result["result"]["actions"][0]["payload"]["property"], "edit")
+        self.assertEqual(result["actions"][0]["payload"]["property"], "edit")
 
     def test_option_updates_require_a_writable_property_catalog(self):
         context = host_context()
@@ -160,7 +159,7 @@ class CapabilityRefusalTests(unittest.TestCase):
         context["capabilities"]["components"]["Input"]["supported"] = False
         result = compile_properties([change("placeholder", "请输入姓名")], context)
         self.assertEqual(result["status"], "unsupported", result)
-        self.assertNotIn("result", result)
+        assert_non_executable(self, result)
 
 
 class CapabilityRefusalBoundaryTests(unittest.IsolatedAsyncioTestCase):
@@ -200,8 +199,7 @@ class CapabilityRefusalBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 proposal = result["output"]["form_proposal"]
                 self.assertEqual(proposal["status"], "unsupported", result)
                 self.assertIn(reason, proposal["summary"])
-                self.assertNotIn("result", proposal)
-                self.assertNotIn("presentation", proposal)
+                assert_non_executable(self, proposal)
                 step.event_publisher.assert_awaited_once()
                 self.assertEqual(step.event_publisher.await_args.args[1]["proposal"], proposal)
 
@@ -230,3 +228,4 @@ class CapabilityRefusalBoundaryTests(unittest.IsolatedAsyncioTestCase):
         step.native_capability = SimpleNamespace(generate=generate)
         result = await self.agent.generate_form_proposal(step)
         self.assertEqual(result["output"]["form_proposal"]["status"], "unsupported")
+        assert_non_executable(self, result["output"]["form_proposal"])

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import unittest
 
 from compiler_package import load_compiler_module
+from test_form_field_list import apply_field_actions, assert_action_draft, assert_non_executable
 
 
 proposal = load_compiler_module("proposal")
@@ -63,8 +64,9 @@ class FormProposalCompilerTests(unittest.TestCase):
         self.assertEqual(result["protocol"], "form-agent.v1")
         self.assertEqual(result["status"], "ready")
         self.assertEqual(result["target"]["baseRevision"], "rev-10")
-        self.assertEqual(result["result"]["schemaVersion"], "form_actions.v2")
-        self.assertEqual(len(result["result"]["actions"]), 3)
+        self.assertEqual(result["actionVersion"], "form_actions.v2")
+        assert_action_draft(self, result)
+        self.assertEqual(len(result["actions"]), 3)
         self.assertTrue(result["proposalId"].startswith("proposal-"))
 
     def test_incremental_add_preserves_snake_case_client_ref(self):
@@ -76,8 +78,11 @@ class FormProposalCompilerTests(unittest.TestCase):
             }}},
         ])
         self.assertEqual(result["status"], "ready")
-        self.assertEqual(result["result"]["actions"][0]["payload"]["clientRef"], "student_no")
-        self.assertEqual(result["presentation"]["fields"][1]["clientRef"], "student_no")
+        assert_action_draft(self, result)
+        self.assertEqual(result["actions"][0]["payload"]["clientRef"], "student_no")
+        fields = apply_field_actions(host_context().context["currentSchema"]["fields"], result["actions"])
+        self.assertEqual(fields[1]["clientRef"], "student_no")
+        self.assertEqual(fields[:1] + fields[2:], host_context().context["currentSchema"]["fields"])
 
     def test_action_declarations_are_isolated_between_runs(self):
         first = proposal.proposal_capabilities()
@@ -100,8 +105,14 @@ class FormProposalCompilerTests(unittest.TestCase):
             }}},
             {"capability": "form.remove_component", "slots": {"payload": {"nodeId": "reason"}}},
         ], context)
-        self.assertEqual([field["id"] for field in result["presentation"]["fields"]], ["draft-choice", "section"])
-        self.assertEqual(result["presentation"]["fields"][0]["props"]["options"][0]["value"], "new")
+        assert_action_draft(self, result)
+        self.assertEqual([action["action"] for action in result["actions"]], ["form.update_component_options", "form.move_component", "form.remove_component"])
+        self.assertEqual([action["payload"]["nodeId"] for action in result["actions"]], ["draft-choice", "draft-choice", "reason"])
+        fields = apply_field_actions(before["currentSchema"]["fields"], result["actions"])
+        self.assertEqual([field["id"] for field in fields], ["draft-choice", "section"])
+        expected = deepcopy(before["currentSchema"]["fields"][1:])
+        expected[0]["props"]["options"] = [{"label": "新项", "value": "new"}]
+        self.assertEqual(fields, expected)
         self.assertEqual(context.context, before)
 
     def test_action_references_only_accept_prior_new_fields(self):
@@ -124,7 +135,7 @@ class FormProposalCompilerTests(unittest.TestCase):
             "code": "LOSSY_CONVERSION_DECISION_REQUIRED",
         }}])
         self.assertEqual(result["status"], "needs_clarification")
-        self.assertNotIn("result", result)
+        assert_non_executable(self, result)
         self.assertEqual(result["diagnostics"][0]["code"], "LOSSY_CONVERSION_DECISION_REQUIRED")
 
     def test_unsupported_and_no_change_are_non_executable(self):
@@ -134,8 +145,8 @@ class FormProposalCompilerTests(unittest.TestCase):
         no_change = compile_items([{"capability": "proposal.no_change", "slots": {"summary": "当前配置已满足要求。"}}])
         self.assertEqual(unsupported["status"], "unsupported")
         self.assertEqual(no_change["status"], "no_change")
-        self.assertNotIn("result", unsupported)
-        self.assertNotIn("result", no_change)
+        assert_non_executable(self, unsupported)
+        assert_non_executable(self, no_change)
 
     def test_single_item_native_capability_root_is_supported(self):
         compiled = proposal.compile_form_proposal(
@@ -143,6 +154,7 @@ class FormProposalCompilerTests(unittest.TestCase):
             host_context(),
         )["output"]["form_proposal"]
         self.assertEqual(compiled["status"], "no_change")
+        assert_non_executable(self, compiled)
         self.assertEqual(compiled["summary"], "无需修改。")
 
     def test_action_must_be_declared_by_host(self):
@@ -155,7 +167,7 @@ class FormProposalCompilerTests(unittest.TestCase):
         ], context)
         self.assertEqual(result["status"], "unsupported")
         self.assertIn("未声明支持动作", result["summary"])
-        self.assertNotIn("result", result)
+        assert_non_executable(self, result)
 
     def test_actions_require_version_and_capability_catalog(self):
         context = host_context(supportedActionVersions=[])
@@ -165,7 +177,7 @@ class FormProposalCompilerTests(unittest.TestCase):
         ], context)
         self.assertEqual(result["status"], "unsupported")
         self.assertIn("supportedActionVersions", result["summary"])
-        self.assertNotIn("result", result)
+        assert_non_executable(self, result)
 
     def test_conversion_only_accepts_explicitly_unsaved_field(self):
         ready = compile_items([
@@ -263,7 +275,7 @@ class FormProposalCompilerTests(unittest.TestCase):
         ], context)
         self.assertEqual(result["status"], "unsupported")
         self.assertIn("不可写属性", result["summary"])
-        self.assertNotIn("result", result)
+        assert_non_executable(self, result)
 
     def test_container_and_grid_targets_are_out_of_scope(self):
         for target in (

@@ -369,11 +369,11 @@ type RelatedFieldValue = {
 | 保存 | Agent 应用回执 unsaved=true | 应用不等于已持久化到服务；保存链路及保存后回读需要在实施时验证 |
 | 逐属性勾选 | 当前 selectedClientRefs 仅允许纯新增；非新增必须整批执行，edits 仅允许改新增列表标题 | 截图的逐属性勾选需要新契约，不能复用新增勾选语义 |
 
-## 10. 属性勾选协议建议（尚未实现）
+## 10. 属性动作草稿契约
 
-可继续沿用 form.update_component，但在展示与执行之间建立稳定的属性修改项 ID。建议每项包含 changeId、nodeId、componentName、语义属性标识、before/after（含“缺失”状态）及对应 actionId；前端只编译用户勾选项。默认值模式+内容、选项默认项、access 联动属于一项语义修改的完整效果，不能拆成会产生无效组合的任意叶子键。
+2026-11-23 的输出调整统一使用顶层 `actions`，以 `actionId` 作为勾选和依赖标识。属性修改保留 `form.apply_property_change` 的语义处理，`payload` 保存 nodeId、componentName、property、operation 及适用的新值，`preconditions.before` 保存修改前状态。默认值模式与内容、选项默认项、access 联动属于一项完整语义操作，不能拆成会产生无效组合的任意叶子键。
 
-“换一换”需重新获取最新组件状态与 revision，再生成候选项；应用时重新检查目标、版本、before、锁定条件和最终候选状态。整理时的旧字段路径使用 `form_field_list + fields`。2026-11-20 用户批准的单提案契约已明确：子 Agent 仅输出 `{ form_proposal: proposal }`，字段 `presentation.kind = shared.table-field-confirm`，属性修改 `presentation.kind = shared.component-property-checklist`，属性提案保留完整 items 与原动作，不复用字段勾选语义。ai-chat 本地投影现有 Props，宿主类型和校验器兼容新旧 kind；历史有效显式 component 优先、无效声明不降级。仅 ready 且领域契约有效、kind 匹配并通过注册/业务白名单时渲染确认卡；未知、错配 kind 和非 ready 不获得应用资格。第 10 节其余内容保留为原核验时的建议，实际属性契约见 [三端接入说明](./ai-chat-property-edit-integration.md)，能力及部署结果以当前实施验证为准。
+子 Agent 仅输出 `{ form_proposal: proposal }`，字段使用 `presentation.kind = shared.table-field-confirm`，属性使用 `shared.component-property-checklist`；确认卡的 presentation 只含 kind 和 title，不复制 fields/changes/items 或 result.actions。用户编辑并选择后提交唯一最终动作草稿，不附旧载荷及 edits，也不维护旧输出双格式解析。“换一换”需要最新快照和 revision。宿主必须重新检查目标、版本、before、能力、依赖、锁定及最终候选状态，再原子应用；本次不修改设计器宿主，其接入仍需同步完成。第 9 节记录原核验时的宿主事实，不表示缺口已修复。完整契约见[三端接入说明](./ai-chat-property-edit-integration.md)。
 
 现有更新动作载荷示例（只展示已有动作外形，不表示缺口已经修复）：
 

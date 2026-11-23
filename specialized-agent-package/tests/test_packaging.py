@@ -5,12 +5,15 @@ import importlib
 import importlib.abc
 import importlib.util
 from pathlib import Path
+import shutil
 import sys
-import tempfile
 from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 import zipfile
+
+from test_form_field_list import assert_action_draft
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,9 +25,10 @@ SPEC.loader.exec_module(PACKAGING)
 
 class PackagingTests(unittest.TestCase):
     def setUp(self):
-        directory = tempfile.TemporaryDirectory(prefix="form-agent-package-test-")
-        self.addCleanup(directory.cleanup)
-        self.archive_path = Path(directory.name) / "agent.zip"
+        directory = ROOT / f".form-agent-package-test-{uuid4().hex}"
+        directory.mkdir()
+        self.addCleanup(shutil.rmtree, directory)
+        self.archive_path = directory / "agent.zip"
 
     def write_archive(self, overrides=None, omitted=(), prefix=""):
         files = PACKAGING.source_files(SOURCE)
@@ -116,8 +120,10 @@ class PackagingTests(unittest.TestCase):
                 proposal = result["output"]["form_proposal"]
                 self.assertEqual(set(result["output"]), {"form_proposal"})
                 self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
-                self.assertEqual([field["clientRef"] for field in proposal["presentation"]["fields"]], ["student_no"])
-                self.assertEqual(result["output"]["form_proposal"]["result"]["actions"][0]["payload"]["clientRef"], "student_no")
+                assert_action_draft(self, proposal)
+                self.assertEqual(len(proposal["actions"]), 1)
+                self.assertEqual(proposal["actions"][0]["payload"]["clientRef"], "student_no")
+                self.assertEqual(proposal["actions"][0]["payload"]["props"]["name"], "student_no")
                 property_context = {
                     "target": {"schemaId": "form-1", "revision": "rev-1"},
                     "currentSchema": {"fields": [{"id": "reason", "componentName": "Input", "props": {"label": "事由"}}]},
@@ -137,7 +143,9 @@ class PackagingTests(unittest.TestCase):
                     }},
                 ]}, property_context)["output"]["form_proposal"]
                 self.assertEqual(property_result["status"], "ready", property_result)
-                self.assertEqual(property_result["result"]["actions"][0]["payload"]["value"], True)
+                assert_action_draft(self, property_result, "shared.component-property-checklist", property_actions=True)
+                self.assertEqual(len(property_result["actions"]), 1)
+                self.assertEqual(property_result["actions"][0]["payload"]["value"], True)
                 packages.append(bootstrap)
             self.assertIsNot(packages[0].register_agent, packages[1].register_agent)
             self.assertEqual(builder.register.call_count, 2)

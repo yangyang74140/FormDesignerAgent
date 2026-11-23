@@ -1,6 +1,6 @@
 # 属性规则与宿主授权
 
-状态：仅整理重构前 `properties.py` 已有的七类组件属性路径；后续输出目标见[规范入口](./README.md)。下文类型、默认值与行为描述的是 Agent 现有实现，不据此推定宿主真实属性或完整能力。本地组件定义是 Agent 理解和校验的规则，宿主每轮声明才决定实际可执行能力；未核验的组件或属性不自行补充。
+本规范保留七类组件已定义的属性语义，并统一使用顶层 actions 草稿。修改确认的 presentation 仅含 `shared.component-property-checklist` 的 kind/title；没有属性 items、after 或第二份目标新值。**设计器宿主本次未修改，仍须接入最终草稿复验与执行。** 本地组件定义只代表 Agent 理解和校验范围，宿主每轮声明才决定实际能力；未核验的组件或属性不自行补充。
 
 ## 规则的组织方式
 
@@ -33,19 +33,23 @@
 
 “禁用”没有已注册语义及写入规则时，必须说明“暂时还不支持禁用”，不能猜 disabled/readOnly 或擅自映射 edit=false、access、disableManualEdit。edit、display、disableManualEdit 只用于对应已确认的权限语义，并继续要求本轮属性目录与节点授权。无法表达的用户要求不能静默省略；含不支持项的修改批次不交付任何动作。拒绝原因同时出现在 summary 与 diagnostics.message，避免摘要仍显示请求已完成。
 
-## IR 与当前动作
+## IR 与统一动作
 
-`proposal.begin.slots.result_kind` 使用 property_changes、property_query 或 property_undo。属性 IR 的目标为 node_id、use_selection，或可唯一匹配的 node_label/node_name；实际动作绑定解析后的真实 nodeId。
+输入 IR 不变：`proposal.begin.slots.result_kind` 使用 property_changes、property_query 或 property_undo。目标为 node_id、use_selection，或可唯一匹配的 node_label/node_name；编译后的动作绑定真实 nodeId，不能在应用时跟随新的 selection。
 
-| IR | 关键 slots | 当前结果 |
+| IR | 关键 slots | 输出 |
 | --- | --- | --- |
 | `form.property.change` | property、operation；set 带 value；copy 带 source_node_id/source_property | `form.apply_property_change` |
-| `form.property.query` | property | 只读查询，无执行 result，不要求写动作版本 |
+| `form.property.query` | property | 只读查询，无 actions，不要求写动作版本 |
 | `form.property.rule` | operation=add/replace/remove、rule_type、rule_id、value | `form.apply_property_rule` |
 | `form.property.linkage` | operation=add/replace/remove、linkage_type、linkage_id、value | `form.apply_property_linkage` |
 | `form.property.undo` | transaction_id | `form.undo_property_transaction`；只允许真实当前可撤销事务 |
 
-修改动作 payload 包含 nodeId、componentName、property、operation。set 带语义 value；copy 固定来源节点、属性、读取快照及值；clear/unset/reset 不携带 value。规则/联动需要宿主已注册目录、结构化 schema、兼容组件、真实引用与处理器。联动使用有界 AST，不执行模型生成的 JS 字符串。
+修改提案保留 `protocol=form-agent.v1`、`contractVersion=form_property_proposal.v1`，顶层为 `mode=append`、`actionVersion=form_property_actions.v1` 和 actions。每条动作都有唯一 actionId、action、payload、dependsOn 数组及 display.selectedByDefault；属性变更、规则和联动动作还需 `preconditions.before={exists,value?}`。原状态从生成时快照读取：exists=false 不带 value；显式 false/null/0/空字符串不能被当作不存在，继承有效值不能冒充本地存储状态。规则/联动的 before 对应被修改配置的原语义值；不存在的配置用 exists=false。
+
+修改 payload 包含 nodeId、componentName、property、operation。set 的新值只在 payload.value；copy 固定 sourceNodeId/sourceProperty 和既有来源读取快照，复制值只在 payload.value；sourceSnapshot 是来源前置状态，不另造展示用目标新值副本。clear/unset/reset 不携带 value。before 是并发前置状态，不是重复新值；不得另加 after 或展示用目标新值。可选 display.effects 仅用字符串解释派生影响，例如“同时开启显示和编辑”，不作为写入指令。
+
+规则/联动沿用既有 payload 语义，要求注册目录、结构化 schema、兼容组件、真实引用与处理器；联动使用有界 AST，不执行模型生成的 JS 字符串。查询保留 `contractVersion=form_property_query.v1`、`presentation.kind=component_property_query`、readOnly=true 及 items，不含动作。撤销保留 component_property_undo 专用展示，transactionId/canUndo 用于真实事务状态，执行动作位于顶层 actions；不得投影为普通属性勾选卡。
 
 ## 设置、清空、删除、重置与复制
 
@@ -59,17 +63,17 @@
 
 ## 批次、依赖与失败
 
-每批先在副本上模拟，再按最终候选状态校验值、条件与联动。默认值依赖本批格式或选项变更；提示内容依赖对应开关。存在依赖时当前 presentation.items[].dependsOn 引用 changeId；已勾选项依赖未勾选项则澄清，不静默代选。同节点同语义重复、互斥设置及派生影响冲突均拒绝。
+每批先在副本上模拟，再按最终候选状态校验值、条件与联动。默认值依赖本批格式或选项变更；提示内容依赖对应开关。`dependsOn` 统一引用本批其他动作 actionId，无重复、自依赖、环或悬空引用；默认勾选或用户最终选择缺少依赖时明确阻止，不静默代选。同节点同语义重复、互斥设置及派生影响冲突均拒绝。权限及复合语义的底层效果封装在同一个处理器内，不能拆成独立叶子动作供勾选。
 
-属性修改当前返回 `form_property_proposal.v1`，presentation.items 包含 before/after、依赖与动作关联；动作契约为 `form_property_actions.v1`。查询返回 `form_property_query.v1` 且不包含 result。它们仍是当前格式，并非已完成 actions-only 草稿目标。
+ai-chat 直接编辑 payload 并按 actionId 选择同一 actions 草稿，提交 `{proposal: 最终已编辑且已选择的提案}`。不得将改动只写进卡片文案后仍提交原始动作，也不另传选择 ID 列表或 edits。编辑不改变原 before；已交付的 ai-chat 属性接口直接调用 `bridge.apply({proposal, applyRequestId})`，无 register 步骤，回执使用 appliedActionIds。前端支持真实 context 的 formDraftCapabilities；applyRequestId 独立于 proposal，宿主须以它关联最终请求指纹，相关宿主实现本次未修改。
 
-| 情况 | 当前状态或典型错误码 |
+| 情况 | 状态或典型错误码 |
 | --- | --- |
 | 目标为空、重名、需要补值或选择依赖不满足 | needs_clarification；TARGET_REQUIRED/VALUE_REQUIRED/SELECTION_DEPENDENCY 等 |
 | 目录、策略、动作版本或处理器缺失 | unsupported；MISSING_PROPERTY_CATALOG/MISSING_NODE_POLICY/ACTION_VERSION_UNSUPPORTED/MISSING_COMPOUND_HANDLER |
 | 属性、类型、保存锁或组合非法 | unsupported；UNSUPPORTED_PROPERTY/SAVED_PROPERTY_LOCKED/PROPERTY_CONFLICT/SEMANTIC_CONFLICT 等 |
 | 存储状态及候选状态均无变化 | no_change |
 
-上述非 ready 修改结果不包含可执行 result。实际应用需宿主再次校验用户最终选择、依赖、before、revision 和能力，事务执行后返回真实回执。Agent 的副本预览不能替代宿主执行器。
+非 ready 修改结果没有执行动作或可应用确认卡。生成校验不授权编辑后的草稿：宿主须复验固定目标、revision、目录与能力、动作版本、before、复制来源、依赖、引用和顺序，在副本运行真实处理器并验证最终候选，全部通过才原子提交。回执和撤销必须反映实际事务；应用仅更新画布，保存另行完成。具体请求和验收见[三端接入说明](../../doc/ai-chat-property-edit-integration.md)。
 
 具体组件属性、类型和复杂结构见[组件目录](./components/README.md)；完整宿主属性核验依据见[属性清单](../../doc/component-property-inventory.md)，其中标为建议的行为不能视作已部署。

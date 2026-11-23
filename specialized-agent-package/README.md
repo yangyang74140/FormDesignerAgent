@@ -5,12 +5,13 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 
 # 表单设计 Agent
 
-该插件严格遵循 `specialized-agent-development-guide.md` 的三件套结构，并以 `form-agent-prompt.md` 为行为基线：
+该插件遵循[第三方开发指南](../specialized-agent-development-guide.md)的三件套结构；行为边界由 manifest、受控 IR 和本包业务规范共同约束：
 
 - `manifest.yaml`：员工身份、人设、执行边界和委派说明。
 - `bootstrap.py`：平台要求的 `register_specialized_agent(context)` 入口。
 - `agent_definition.py`：append 意图、Plan、结构化输出和单一提案 Pipeline。
-- `form_generation/proposal.py`：统一提案入口、状态路由、字段编译及当前展示投影。
+- `form_generation/proposal.py`：统一提案入口、状态路由和字段动作编译。
+- `form_generation/drafts.py`：单一动作草稿封装、动作 ID 与依赖结构校验。
 - `form_generation/action_rules/`：表单动作注册表与组件动作、规则/公式动作校验。
 - `form_generation/components/`：公共属性定义与统一注册；`definitions/` 按组件名维护属性文件，`definitions/_shared/` 维护实际复用的族处理。
 - `form_generation/properties.py`：属性提案编排、宿主授权与批次依赖校验。
@@ -21,7 +22,7 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 
 先读 [规范入口](./specs/README.md)，再按改动阅读 [动作规范](./specs/actions.md)、[公共属性规则](./specs/properties.md) 或 [组件目录](./specs/components/README.md)。组件属性与专有处理放在 `components/definitions/` 下的同名文件，如 `NumberPicker.py`；`Input.TextArea` 使用 `InputTextArea.py`。新增组件复用公共属性，仅将多个组件实际共享的规则和处理提取到 `_shared/`，由 `registry.py` 统一注册，不继续集中到提案编译器。
 
-本次分层保持当前输出与校验行为。本文后续章节描述当前实现，包括 `presentation.fields/changes/items`、`result.actions` 和现有属性动作；根目录 `AGENTS.md` 第 5 节确认的单一 actions 草稿目标尚需后续统一实施。本次没有切换协议、增加兼容层或宣称宿主已部署。
+本文采用用户已确认的单一 actions 草稿契约，保留模型输入 IR 和既有动作语义。**设计器宿主本次未修改，仍须完成新结构解析、用户草稿复验和应用接入。** ai-chat 同期按共同契约调整；本地输出与文档不代表三端已部署，不提供旧格式解析、迁移或结构版本分流。
 
 ## 支持范围
 
@@ -29,7 +30,7 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 
 - 根据自然语言一次性生成完整字段列表，例如“员工入职登记表”。
 - 支持 `Input`、`Input.TextArea`、`DatePicker`、`TimePicker`、`NumberPicker`、`SelectSingle`、`SelectMulti`、`CheckboxGroup`、`Switch`。
-- 从同一份字段定义同时编译 `presentation.fields` 和 `form.add_component` Actions，避免展示与执行数据漂移。
+- 字段定义只编译为顶层 `form.add_component` actions；ai-chat 从同一动作草稿派生展示行，用户编辑直接写回 payload。
 - 修改现有字段属性或选项，在根层或真实锚点前后插入，删除、移动组件。
 - 仅转换明确标记为未保存的新字段；有损转换先澄清。
 - 在宿主明确声明时生成字段/表单规则和公式动作。
@@ -61,23 +62,27 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 
 ## 输出协议
 
-字段最终产物固定为一个 `form-agent.v1` 提案，状态为 `ready`、`needs_clarification`、`unsupported` 或 `no_change`。子 Agent 的逻辑最终 output 只为 `{ form_proposal: proposal }`；展示路由放在原提案的 `presentation.kind`，不再附加 `component` 信封或复制 `props.proposal`。完整保留领域 `presentation.fields/changes/items`、标题、快照和 `result.actions/target/validation`，UI 行数据由 ai-chat 本地投影。
+逻辑最终 output 固定为 `{form_proposal: proposal}`，只含一份完整提案，不另包 component 或复制 props.proposal。保留 `protocol=form-agent.v1` 与既有 contractVersion；字段/通用提案为 `form_agent_proposal.v1`，属性修改为 `form_property_proposal.v1`，查询为 `form_property_query.v1`。状态为 ready、needs_clarification、unsupported 或 no_change；非 ready 不带执行动作或可应用确认卡。
 
-新建完整表单时，`ready` 同时包含：
+修改提案的共同结构：
 
-- `presentation.kind = shared.table-field-confirm`：声明已注册字段确认组件；ai-chat 在完整 JSON、ready 状态、领域契约及业务白名单校验通过后投影到现有 Props，一次性渲染全部字段。旧 `form_field_list` 由消费端与宿主继续兼容。
-- `result.kind = form_actions`、`mode = replace_empty_form`：设计器事务应用同源 `form.add_component` Actions。
-- `validation`：Schema、Action 版本和字段数量摘要。
+- 顶层 `mode`：完整空白表单为 replace_empty_form，增量为 append；不得覆盖非空画布。
+- 顶层 `actionVersion`：沿用宿主实际声明的动作版本值；属性动作仍为 form_property_actions.v1。顶层 schemaVersion 仅是可选 FormSchema 元数据，不设白名单。
+- 顶层 `actions`：每项为 `{actionId,action,payload,dependsOn,display}`，display.selectedByDefault 是布尔值。动作 ID 唯一稳定，依赖使用本批其他 actionId 且无环；引用本批新节点须依赖在前创建动作。
+- 属性变更的 `preconditions.before={exists,value?}` 是原状态；新值只在 payload.value。set/copy 带 value，clear/unset/reset 不带 value，不附 after。可选 display.effects 仅说明派生影响。
+- 普通修改确认的 `presentation` 仅含 kind/title：字段为 shared.table-field-confirm，属性为 shared.component-property-checklist。没有 result、validation，也没有重复的 fields/items/changes 或动作副本。
 
-新增字段只携带 `clientRef`、`componentName` 和合法 `props`，不携带持久化 `id`。`clientRef` 以小写字母开头，其后允许小写字母、数字、下划线或连字符（如 `student_no`、`student-name`），必须唯一且原样贯穿展示、Action 和回执；不会替换字符或自动重命名，避免引用碰撞。业务字段 `name` 另按宿主 `fieldNameRules` 校验。已有字段展示保留真实 `id` 和全部原有属性（包括 `options.dataSource`、`identifiers` 等）；设计器保存成功后回传新增字段的 `clientRef -> final ID`。增量编辑使用 `append`，不得将展示快照作为整表覆盖或保存请求。
+查询保留 readOnly 的 component_property_query presentation.items，无 actions；撤销保留 component_property_undo 的事务展示与顶层 actions，二者均不进入普通确认卡。完整字段和属性 JSON 示例见[三端接入说明](../doc/ai-chat-property-edit-integration.md)。
+
+新增字段 payload 保留 clientRef、componentName、合法 props 和 target，不带持久化 ID。clientRef 以小写字母开头，其后允许小写字母、数字、下划线或连字符，唯一且原样贯穿动作和回执；它是新节点身份，UI 勾选使用 actionId。业务 name 另按 fieldNameRules 校验。已有节点以真实身份修改并保留无关属性；宿主分配新节点真实 ID 后回传 clientRef 映射，不由聊天构造。增量 append 不表示追加旧卡片列表，更不表示保存。
 
 ## 已有画布追加与最新列表
 
 宿主每轮发送最新 `currentSchema` 和 `target.revision`，不能只发送上轮新增字段。以 `tests/fixtures/student-form-data.json` 为例，现有字段为姓名、学号、性别、出生日期、班级、联系电话、备注：
 
-- “追加监护人和监护人电话”：生成 `form_fields + append`，省略 `target`；默认插入到最后一个 `componentCategory=field` 的组件之后，缺省 category 视为字段。末尾若有非字段组件，新增字段插入到它之前。
+- “追加监护人和监护人电话”：输入 IR 使用 `form_fields + append` 并省略定位 target；默认插入到最后一个 `componentCategory=field` 的组件之后，缺省 category 视为字段。编译后的新增动作有明确 root index；末尾若有非字段组件，新增字段插入到它之前。
 - “在学号后新增监护人和监护人电话”：模型从当前快照定位学号，也可将原样标签交给编译器唯一匹配；编译器按顺序生成 root 下标 `2`、`3` 的新增动作，避免多个字段在同一锚点后插入时顺序颠倒。
-- 标签重名、目标不存在、选择为空时返回 `needs_clarification`，没有可执行 `result`；不会静默追加到末尾。可以用 `anchorName` 或真实 `anchorNodeId` 消除歧义，也可以用 `useSelection: true` 引用本轮选中字段。
+- 标签重名、目标不存在、选择为空时返回 `needs_clarification`，没有执行动作；不会静默追加到末尾。可以用 `anchorName` 或真实 `anchorNodeId` 消除歧义，也可以用 `useSelection: true` 引用本轮选中字段。
 - 新增字段 name、clientRef 不得与已有字段冲突；`maxFields` 对已有字段加新增字段的总数生效。即使 `canvas.isBlank=true`，非空 `currentSchema.fields` 也不能被 `replace_empty_form` 覆盖。
 
 受控 IR 示例：
@@ -108,25 +113,21 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 }
 ```
 
-返回提案中的 `presentation.fields` 为预计应用后的**完整组件列表**，`fieldCount` 与该数组长度一致；该例为 8 项。已有组件原样复制，新增组件无持久化 ID。`presentation.changes` 为按执行顺序排列的展示变更：
+返回提案只包含本次动作，不附已有画布的完整快照或第二份展示变更列表。字段编译器输出明确 root index，按执行顺序递增；原始 root 动作省略 index 表示物理根列表末尾，与字段 IR 默认插入在末尾非字段之前不同。标签匹配、目标选择仍是输入 IR 的解析行为，最终动作固定真实目标。
 
-| operation | 数据 | 含义 |
-| --- | --- | --- |
-| `insert` | `index`、`field` | 在当前列表指定下标插入新组件 |
-| `replace` | `index`、`field` | 用包含原 ID 和保留属性的组件快照更新展示 |
-| `remove` | `index`、`field` | 删除该位置组件，field 为删除前快照 |
-| `move` | `fromIndex`、`index`、`field` | 先移除 fromIndex，再插入 index |
+ai-chat 从 actions 派生预览并维护唯一草稿。取消或删除新增建议是移除草稿动作；删除画布已有节点是 form.remove_component。引用本批新 clientRef 的动作须依赖创建动作 actionId，缺选依赖不得静默代选。只选择连续新增中的部分项时须复验位置；仅可对整批纯新增、显式 root index 连续且可证明独立的序列按保留顺序重算 index，其他复杂位置子集拒绝或重新生成。完整规则见[动作规范](./specs/actions.md)。
 
-下标基于本批此前变更已执行后的列表；不是 JSON Patch，也不是独立保存协议。普通属性、选项修改以及插入、删除、移动的 `form_actions` 也会编译最新展示列表。字段类型转换由宿主决定属性迁移及默认值，含转换动作时不返回推测的展示快照，应在应用后刷新宿主 Schema。规则、公式等动作不展开为组件属性，展示快照不能作为完整 FormSchema 使用。
+类型转换的默认值、属性迁移与有损决定交给已支持处理器，不能从展示投影伪造完成。应用后刷新真实 Schema；规则、公式和选项的完整引用校验也依赖宿主实际处理器。
 
-### 宿主接入
+### 宿主接入要求（本次未修改设计器宿主）
 
-1. 收到完整 `form.proposal.completed`（或标准步骤完成事件）后，按 `proposalId` 去重；校验契约和状态，用 `presentation.fields` **替换聊天中的旧组件列表**。已有组件用 `id`、新增组件用 `clientRef` 作为展示 key。不要再次把完整列表 append 到旧列表。也可使用 changes 做展示动画，随后以完整 fields 校正。
-2. 将列表标记为“提案预览”；用户应用时只事务执行 `result.actions`，使用 `target.baseRevision` 检查版本和独立 Apply 幂等键。已有节点不能通过新增接口重建。`append` 是增量应用模式，指定位置的动作仍然必须遵守各自的 `payload.target.index`。
-3. 保存继续由设计器与现有后端接口处理。仅新增组件分配新 ID；选项的内部 primaryKey 等由宿主适配器构建。保存后用真实 Schema、revision 和执行回执更新 context；聊天列表也以宿主实际结果为准。
-4. 遇到 revision conflict 不应用旧下标，刷新 context 后重新生成；`rejected` 或保存失败不能把预览当作已持久化数据。
+1. 完整提案到达后校验状态、contractVersion、actionVersion、kind 与业务白名单，按 proposalId 去重。普通确认从 actions 派生展示，以 actionId 勾选；选项保留真实 value，不能以展示标签重建动作。
+2. 用户编辑直接写入唯一草稿的 payload。提交 `{proposal: 最终已编辑且已选择的提案}`，不另传选择 ID、edits 或未编辑原载荷。Apply 幂等键通过宿主独立通道传递；/invoke 幂等不能替代 Apply。
+3. 宿主把提交草稿作为待验证请求，重新检查固定目标、target.baseRevision、真实能力、动作版本、before、依赖、引用、位置顺序与最终候选。生成时校验不授权编辑后的动作；不允许仅因它属于原提案就跳过校验。
+4. 在副本上由受支持处理器验证全部语义后原子提交，记录独立 Apply 幂等、提案消费状态和一个撤销事务。遇到冲突刷新 context 重生成，不能应用旧下标。
+5. 应用只更新画布。保存由设计器与既有后端接口完成；真实 Schema、revision、unsaved 状态及新增 ID 映射由宿主回传，聊天展示以真实结果为准。
 
-本仓库实现 Agent 生成、确定性编译及返回协议；聊天列表消费、画布 Action 执行器和保存接口位于宿主项目，需要按以上约定接入。
+本仓库负责 Agent 生成、确定性编译和返回协议。ai-chat 已交付真实 context 的 formDraftCapabilities 支持；属性前端直接调用 `bridge.apply({proposal, applyRequestId})`，按 appliedActionIds 读取回执，无 register 步骤。applyRequestId 独立于 proposal，生成校验不授权编辑后的载荷。设计器宿主本次未修改，新解析与校验、画布执行器及保存闭环仍须接入，不能将前端交付视为三端已部署证明。
 
 ## 运行编排
 
@@ -139,17 +140,19 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 5. 保留原有的单次业务事件 `form.proposal.completed`，`block_id/title/status/proposal` 等原 payload 字段不变，仅移除重复 `component`；每个逻辑 output 或业务 payload 内完整提案只出现一次。不额外发布组件事件、骨架或逐字段事件。
 6. ai-chat 对完整文本 JSON、state 快照、标准步骤、自定义业务事件及历史回放统一校验、投影并按 `proposalId` 去重。设计器仍在用户确认后通过独立 Apply 幂等键事务应用，保存和回传 ID 映射由宿主负责。
 
-| 结果 | `presentation.kind` | ai-chat 本地投影的现有 Props |
+| 结果 | `presentation.kind` | ai-chat 行为 |
 | --- | --- | --- |
-| 已校验的 ready 完整字段列表 | `shared.table-field-confirm` | `proposal`、`proposalId`、`title`、`compact: true`、`fields`、`fieldTypes`、`selectedFieldIds` |
-| 已校验的 ready 属性变更清单 | `shared.component-property-checklist` | `proposal`、`proposalId` |
-| 查询、撤销、澄清、无变更、失败或无可展示清单 | 保留原状态及领域语义 | 不投影为上述可应用确认卡 |
+| ready 字段动作 | `shared.table-field-confirm` | 从 actions 派生展示行，按 actionId 勾选并编辑同一草稿 |
+| ready 属性变更 | `shared.component-property-checklist` | 从 payload、preconditions 和 display 派生属性行 |
+| 只读查询 | `component_property_query` | 保留 readOnly/items，不提供修改入口 |
+| 事务撤销 | `component_property_undo` | 使用专用撤销入口，不能进入普通确认卡 |
+| 澄清、无变更或失败 | 保留状态与领域语义 | 不渲染可应用确认卡 |
 
-ready、有效领域契约、匹配 kind、已注册且被当前业务白名单允许必须同时满足。无效、未知或字段/属性错配 kind 不渲染，不因存在 fields/items 而改推其他卡；非 ready 结果不因设置 kind 获得执行资格。旧 `form_field_list`、`component_property_checklist` 由 ai-chat 与设计器类型/校验器继续接受。历史显式 `component` 仍优先：有效声明按既有规则渲染，显式存在但无效时不回退到 proposal 推断；新生产端不再发出该信封。协议、Action、target/revision、幂等和原子应用检查保持不变。
+ready、有效契约、匹配 kind、注册组件与当前业务白名单必须同时满足。无效、未知或字段/属性错配 kind 不渲染，也不尝试另一种卡片兜底；kind 不授予执行资格。旧展示 kind、显式 component、result.actions 和旧字段/属性列表均不进入本次单一契约解析，不维护双格式历史分支。
 
 步骤返回的顶层 `diagnostics` 保留平台原有诊断，并追加 `FORM_HOST_CONTEXT_TRACE`：`stage=handler/compiler`、入参类型、提取后的上下文类型、白名单内的协议键名，以及 `requestId/target/currentSchema/capabilities/supportedActionVersions` 的存在标记。compiler 记录 `compile_source=handler_snapshot`。不记录字段值、任意业务键名、Schema 内容、用户输入、业务 ID 或令牌，也不把诊断加入 `output` 或业务事件。可从 `pipeline.step.completed` 的 `diagnostics` 或 `specialized_builder.context.snapshot.output_pipeline_result.step_results[].diagnostics` 检查；事件透传以目标平台实际行为为准。handler 诊断同时记录 `native_result_type`，用于确认原生生成 helper 的实际返回类型。完整提案、业务事件和 handler 诊断同时缺失时，先检查是否运行了包含结果对象兼容修复的版本，再检查平台透传；新版本不再输出独立 component，不能用它的缺失判断异常。handler 完整、compiler 标记缺失时，快照绑定仍可正常编译。每轮缺失上下文仍返回澄清，不用默认画布绕过检查。
 
-字段卡的行由 ai-chat 按提案字段顺序投影为 `{id, name, type, options, option?}`；已有字段用 `id`，新增字段用 `clientRef`。`options` 是展示标签，原始选项值、属性和动作保留在唯一原提案中；本地组件 Props 引用该提案，不从卡片反推执行数据。`/invoke` 的幂等键只防止重复创建 Run，不能代替设计器 Apply 幂等。单提案契约回归结果由实施任务记录；标准步骤与自定义事件透传、状态/历史持久化和断线补发仍需在目标平台验证，本地检查不等于线上已部署。
+字段行和属性行都是唯一 actions 草稿的 UI 投影，不单独持有执行副本。选项标签用于展示，真实 value 与其他配置在 payload 中保留；用户编辑写回 payload，不能由卡片文案反推操作。/invoke 幂等键只防重复创建 Run，不能替代 Apply 幂等。标准步骤与业务事件透传、状态/历史持久化、SSE 断线补发及三端应用仍须在目标平台验证，本地检查不等于线上部署。
 
 ## 更新包与入口加载
 
@@ -169,22 +172,22 @@ ready、有效领域契约、匹配 kind、已注册且被当前业务白名单�
 python3 -B -m unittest discover -s specialized-agent-package/tests -q
 ```
 
-回归覆盖四种提案状态、9 种组件、字段列表与 Actions 同源、无持久化 ID、空白 Flow 限制、字段命名、保留名、重复 `clientRef`、选项完整性、可写属性、增量动作目标和唯一最终事件。`test_capability_refusal.py` 额外覆盖缺失/空能力目录、禁用及未知属性拒绝、整批拒绝、真实权限保留、宿主候选交集与最终拒绝事件。`test_output_preview.py` 的单提案回归需验证字典、通用映射、属性对象和不可变 dataclass 返回值均只输出一次完整提案、唯一业务事件及诊断，并保留失败对象的错误码和中止标记；本次结果由实施会话回填。`test_host_context.py` 额外验证不同形态与过期 compiler 上下文、本轮快照隔离、并发运行互不串单、缺失 handler 快照仍拒绝动作，以及上下文诊断脱敏和原生失败诊断保留。旧三组件编译器只作为兼容模块保留，不注册为生产 Pipeline，也不参与新建表单输出。
+回归须覆盖四种提案状态、9 种生成组件、唯一 actions 草稿、无重复快照、无持久化 ID、空白 Flow 限制、字段命名、保留名、重复 clientRef、选项完整性、可写属性、增量动作目标、依赖及位置选择子集和唯一最终事件。`test_capability_refusal.py` 额外覆盖缺失/空能力目录、禁用及未知属性拒绝、整批拒绝、真实权限保留、宿主候选交集与最终拒绝事件。`test_output_preview.py` 的单提案回归需验证字典、通用映射、属性对象和不可变 dataclass 返回值均只输出一次完整提案、唯一业务事件及诊断，并保留失败对象的错误码和中止标记；本次结果由实施会话回填。`test_host_context.py` 额外验证不同形态与过期 compiler 上下文、本轮快照隔离、并发运行互不串单、缺失 handler 快照仍拒绝动作，以及上下文诊断脱敏和原生失败诊断保留。旧三组件编译器只作为兼容模块保留，不注册为生产 Pipeline，也不参与新建表单输出。
 
 平台验收仍需提供真实 `specialized.builder` SDK，并验证完整 JSON 交付、ai-chat 一次性渲染、设计器事务执行、Apply 幂等、一次撤销、保存重开、`clientRef -> final ID` 回执、SSE 重连去重、取消和 revision 冲突处理。
 
 
-## 1.2.0：七组件属性 Agent
+## 七组件属性能力
 
-新增受控属性 IR 与确定性属性提案编译，支持 `Input`、`Input.TextArea`、`NumberPicker`、`DatePicker`、`TimePicker`、`SelectSingle`、`SelectMulti`。自然语言意图由平台 Native Capability 解析；Python 负责目标、能力、值及输出校验，不依赖独立关键词分类器。
+属性路径使用既有受控 IR 与确定性提案编译，支持 `Input`、`Input.TextArea`、`NumberPicker`、`DatePicker`、`TimePicker`、`SelectSingle`、`SelectMulti`。自然语言意图由平台 Native Capability 解析；Python 负责目标、能力、值及输出校验，不依赖独立关键词分类器。
 
 - `proposal.begin.slots.result_kind=property_changes`：后接 `form.property.change`。
 - `property_query`：后接 `form.property.query`，只读输出，不要求写动作版本。
 - `property_undo`：后接 `form.property.undo`（`transaction_id`）；必须提供宿主真实可撤销事务和已声明动作。
 - `property_changes` 还支持 `form.property.rule`（`operation=add/replace/remove`、`rule_type`、`rule_id`、`value`）和 `form.property.linkage`（`operation`、`linkage_type`、`linkage_id`、`value`），目标字段与 change 一致。仅允许宿主已注册的 ruleCatalog/linkageCatalog、结构化 schema 和处理器；没有运行能力时返回 unsupported。
-- 查询产物 `form_property_query.v1` 的 status=ready，只有只读 presentation，不包含 result；撤销产物及其动作以实际受控能力定义为准，不能交给普通属性处理器。
+- 查询产物 form_property_query.v1 的 status=ready，保留 component_property_query 的 readOnly/items，无 actions；撤销保留 component_property_undo 专用展示，顶层 actions 中使用 form.undo_property_transaction，不能交给普通属性处理器。
 - 属性 change 使用 `node_id` 或 `use_selection=true`，也可使用 `node_label/node_name` 唯一匹配；操作包括 `set/clear/unset/reset/copy`，复制提供 `source_node_id/source_property`。
-- 属性输出为 `form_property_proposal.v1`，`presentation.kind = shared.component-property-checklist`；保留完整 `items` 与动作，旧 `component_property_checklist` 由消费端和宿主兼容。动作协议 `form_property_actions.v1`、动作 `form.apply_property_change` 不变。
+- 属性输出保留 form_property_proposal.v1；presentation 仅含 shared.component-property-checklist 的 kind/title。顶层 actionVersion=form_property_actions.v1；form.apply_property_change/rule/linkage 名称和语义不变，before、依赖和派生影响位于对应动作，不附 items 或 after。
 - 读取并保留顶层 `resolvedProperties`、`history`、`rules`、`linkages`；支持直接 context 映射或平台 StepContext。目录 `capabilities.components.<component>.properties`、`catalogVersion`、`nodePolicies` 应与宿主执行器保持一致。
 - 目录需明确每个属性的 `valueSchema`、`operations`、默认/重置语义、复合 handler。未声明能力不生成可执行结果；不存在/歧义目标进入澄清。
 - 宿主负责将语义动作交给属性 helper，执行 revision/before 检查、逐项勾选、事务、撤销和保存；本包不修改真实画布，也不宣称规则服务或保存已经接通。
@@ -200,7 +203,7 @@ python3 -B -m unittest discover -s specialized-agent-package/tests -q
 }
 ```
 
-新属性契约的宿主待办、context 和最终展示/执行分层见仓库 `doc/ai-chat-property-edit-integration.md`。平台仍使用同一个 Pipeline 外层 `form_agent_proposal.v1` 结构化输出通道，内部 `form_proposal.contractVersion` 按属性修改/查询/撤销区分；上线前需验证平台输出契约允许这些新增产物。原有字段生成输出不变。
+宿主待办、context、字段/属性 JSON 示例和最终草稿提交见[三端接入说明](../doc/ai-chat-property-edit-integration.md)。平台仍使用同一个 Pipeline 的 form_agent_proposal.v1 结构化输出通道，内部保留既有 contractVersion；此次只调整业务提案结构，不新增平台接口、事件或 SDK 能力，实际透传仍需联调。
 
 打包使用 Python 标准库：
 
@@ -208,7 +211,7 @@ python3 -B -m unittest discover -s specialized-agent-package/tests -q
 python3 package_agent.py
 ```
 
-在仓库根目录执行。脚本先运行回归测试，再检查 Python 语法和最终 ZIP 条目，按 manifest 版本生成上传包；本次目标版本为 `1.2.10`（`specialized-agent-package-1.2.10.zip`）；上传包根目录为插件入口，不包含测试、缓存或本地资料。
+在仓库根目录执行。脚本先运行回归测试，再检查 Python 语法和最终 ZIP 条目，按 manifest 版本生成上传包；本次目标版本为 `1.2.12`（`specialized-agent-package-1.2.12.zip`），生成或上传不代表三端已部署。上传包根目录为插件入口，不包含测试、缓存或本地资料。
 
 
 ### 规则、联动和撤销上下文约定

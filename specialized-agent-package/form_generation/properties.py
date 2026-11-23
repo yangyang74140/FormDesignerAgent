@@ -14,7 +14,7 @@ operations and compatible components. Linkages additionally declare astOperators
 The rules/linkages context maps node IDs to current [{id, type, value}] snapshots.
 Extension actions use form.apply_property_rule/form.apply_property_linkage, with
 the same exact action contract version. Queries have a read-only presentation,
-status ready, contract form_property_query.v1 and no executable result.
+status ready, contract form_property_query.v1 and no executable actions.
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ import re
 from typing import Any, Mapping
 
 from .host import CapabilityUnavailable, require_component
+from .drafts import set_action_draft
 from .components import PROPERTY_COMPONENTS, get_component_rules, property_names
 from .components.common import ACCESS as _ACCESS, ACCESS_DEFAULTS as _ACCESS_DEFAULTS, ALIASES as _ALIASES, STORAGE as _STORAGE
 from .components.validation import Rejected as _Rejected, reject as _reject, validate_schema as _schema
@@ -321,13 +322,13 @@ def _ast(value: Any, nodes: list[dict[str, Any]], definition: dict[str, Any], de
 def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, Any]:
     """Compile property_changes/property_query/property_undo IR into a proposal.
 
-    Non-ready mutation results have no result. Successful queries use status
-    'ready', no executable result, contract form_property_query.v1, and a read-only presentation.
+    Non-ready mutations and queries have no actions. Successful queries use
+    status 'ready', contract form_property_query.v1, and a read-only presentation.
     All data returned is detached from the caller's snapshots.
     """
     proposal = deepcopy(dict(base)) if isinstance(base, Mapping) else {}
-    proposal.pop("result", None)
-    proposal.pop("presentation", None)
+    for key in ("result", "presentation", "actions", "mode", "actionVersion", "validation"):
+        proposal.pop(key, None)
     proposal.update(contractVersion="form_property_proposal.v1", diagnostics=[])
     try:
         if not isinstance(context, dict) or not isinstance(items, list) or not _json_safe(items) or not _json_safe(context):
@@ -351,7 +352,8 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
         revision = target.get("revision", target.get("baseRevision"))
         if proposal.get("target") and (proposal["target"].get("schemaId") != target["schemaId"] or proposal["target"].get("baseRevision") != revision):
             _reject("REVISION_CONFLICT", "提案目标与当前快照版本不一致。")
-        proposal["target"] = {"schemaId": target["schemaId"], "baseRevision": revision}
+        proposal["target"] = {key: deepcopy(target[key]) for key in ("schemaId", "formId", "appId", "layoutId") if key in target}
+        proposal["target"]["baseRevision"] = revision
         caps = context.get("capabilities", {})
         if not isinstance(caps, dict) or not isinstance(caps.get("catalogVersion"), str) or not caps["catalogVersion"]:
             _reject("MISSING_CATALOG_VERSION", "缺少属性目录版本。")
@@ -379,7 +381,10 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
                 _reject("UNDO_UNAVAILABLE", "当前宿主历史不允许撤销此事务。")
             _version(context, "form.undo_property_transaction")
             action = {"actionId": _id("action-", [proposal["proposalId"], "undo", slots]), "action": "form.undo_property_transaction", "payload": {"transactionId": slots["transaction_id"], "revision": revision}}
-            proposal.update(status="ready", presentation={"kind": "component_property_undo", "transactionId": slots["transaction_id"], "canUndo": True}, result={"kind": "form_actions", "mode": "append", "schemaVersion": PROPERTY_ACTION_VERSION, "actions": [action]})
+            set_action_draft(proposal, [action], mode="append", action_version=PROPERTY_ACTION_VERSION,
+                             kind="component_property_undo", title="撤销属性修改")
+            proposal["presentation"].update(transactionId=slots["transaction_id"], canUndo=True)
+            proposal["status"] = "ready"
             return proposal
         schema = context.get("currentSchema")
         if not isinstance(schema, dict):
@@ -414,7 +419,6 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
             node = _target(slots, nodes, context)
             next_node = next(n for n in candidate if n["id"] == node["id"])
             capability = item.get("capability")
-            source = None
             if capability in ("form.property.rule", "form.property.linkage"):
                 extension_kind = capability.rsplit(".", 1)[1]
                 action_name, payload, before, after = _extension(extension_kind, slots, node, context, nodes)
@@ -445,7 +449,6 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
                     copied = deepcopy(resolved["resolvedValue"])
                     copied = get_component_rules(node["componentName"]).normalize_copy(prop, copied)
                     after = {"exists": True, "value": copied}
-                    source = {"nodeId": source_node["id"], "property": source_prop, **resolved}
                     payload.update(sourceNodeId=source_node["id"], sourceProperty=source_prop, value=deepcopy(after["value"]), sourceSnapshot=deepcopy(resolved))
                 else:
                     after = get_component_rules(node["componentName"]).after(node, prop, op, slots, definition)
@@ -462,10 +465,17 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
                 _reject("PROPERTY_CONFLICT", "同一节点同一语义属性不能重复或互斥设置。")
             touched.add(identity)
             seed = [proposal["proposalId"], payload]
-            action_id, change_id = _id("action-", seed), _id("change-", seed)
-            rows.append({"changeId": change_id, "nodeId": node["id"], "componentName": node["componentName"], "property": prop, "text": f"{node.get('props', {}).get('label', node['id'])} · {prop} · {slots.get('operation')}", "selectedByDefault": slots.get("selected", True), "before": before, "after": after, "actionIds": [action_id], "dependsOn": [], "effects": effects, **({"source": source} if source else {})})
-            actions.append({"actionId": action_id, "action": action_name, "payload": payload})
-            selected_values[identity] = (after, slots.get("selected", True), change_id)
+            action_id = _id("action-", seed)
+            rows.append({"nodeId": node["id"], "componentName": node["componentName"], "property": prop,
+                         "selectedByDefault": slots.get("selected", True), "before": before, "after": after,
+                         "dependsOn": [], "effects": effects})
+            actions.append({
+                "actionId": action_id, "action": action_name, "payload": payload,
+                "preconditions": {"before": deepcopy(before)},
+                "dependsOn": rows[-1]["dependsOn"],
+                "display": {"selectedByDefault": slots.get("selected", True), "effects": effects},
+            })
+            selected_values[identity] = (after, slots.get("selected", True), action_id)
         for node_id, prop, value, definition in validations:
             node = next(n for n in candidate if n["id"] == node_id)
             rules = get_component_rules(node["componentName"])
@@ -512,7 +522,9 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
         if all(row["before"] == row["after"] for row in rows) and candidate == nodes:
             proposal["status"] = "no_change"
             return proposal
-        proposal.update(status="ready", presentation={"kind": "shared.component-property-checklist", "title": begin.get("title", "组件属性修改建议"), "items": rows}, result={"kind": "form_actions", "mode": "append", "schemaVersion": PROPERTY_ACTION_VERSION, "actions": actions})
+        set_action_draft(proposal, actions, mode="append", action_version=PROPERTY_ACTION_VERSION,
+                         kind="shared.component-property-checklist", title=begin.get("title", "组件属性修改建议"))
+        proposal["status"] = "ready"
         return proposal
     except _Rejected as error:
         proposal.update(status="needs_clarification" if error.clarify else "unsupported", summary=error.message, diagnostics=[{"code": error.code, "message": error.message}])

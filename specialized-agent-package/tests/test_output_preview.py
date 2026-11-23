@@ -9,6 +9,8 @@ from types import ModuleType, SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from test_form_field_list import apply_field_actions, assert_action_draft, assert_non_executable
+
 
 class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
@@ -115,8 +117,8 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         result = await self.agent.generate_form_proposal(context)
         proposal = result["output"]["form_proposal"]
         self.assertEqual(proposal["status"], "ready")
-        self.assertEqual(proposal["presentation"]["fieldCount"], 2)
-        self.assertEqual(len(proposal["result"]["actions"]), 2)
+        assert_action_draft(self, proposal)
+        self.assertEqual(len(proposal["actions"]), 2)
 
     async def test_output_uses_registered_presentation_kind_without_a_duplicate_component(self):
         from test_form_field_list import blank_context
@@ -151,9 +153,10 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         proposal = result["output"]["form_proposal"]
         self.assertEqual(proposal["schemaVersion"], "1.1.0")
         self.assertEqual(proposal["status"], "ready")
-        self.assertEqual(proposal["result"]["mode"], "replace_empty_form")
+        self.assertEqual(proposal["mode"], "replace_empty_form")
         self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
-        self.assertEqual([field["clientRef"] for field in proposal["presentation"]["fields"]],
+        assert_action_draft(self, proposal)
+        self.assertEqual([action["payload"]["clientRef"] for action in proposal["actions"]],
                          ["employee-name", "hire-date"])
         self.assertNotIn("component", result["output"])
         self.assertEqual(context.event_publisher.await_args.args[1]["proposal"], proposal)
@@ -188,7 +191,8 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result["status"], "completed")
                 proposal = result["output"]["form_proposal"]
                 self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
-                self.assertEqual(len(proposal["presentation"]["fields"]), 2)
+                assert_action_draft(self, proposal)
+                self.assertEqual(len(proposal["actions"]), 2)
                 self.assertNotIn("component", result["output"])
                 self.assertEqual(result["diagnostics"][0], native_diagnostics[0])
                 self.assertEqual([item["stage"] for item in result["diagnostics"][1:]], ["handler", "compiler"])
@@ -222,7 +226,7 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(failure.diagnostics, [{"code": "NATIVE_FAILED"}])
         context.event_publisher.assert_not_awaited()
 
-    async def test_complete_field_presentation_preserves_labels_and_option_values(self):
+    async def test_field_action_payloads_preserve_labels_and_option_values(self):
         from test_form_field_list import blank_context
 
         context = SimpleNamespace(inputs="创建员工表", context=blank_context(), event_publisher=AsyncMock())
@@ -241,19 +245,20 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["summary"], "创建包含姓名和入职日期的员工入职登记表。")
         proposal = result["output"]["form_proposal"]
-        self.assertEqual(proposal["presentation"]["fields"][2]["props"]["options"][0],
+        assert_action_draft(self, proposal)
+        self.assertEqual(proposal["actions"][2]["payload"]["props"]["options"][0],
                          {"label": "正式员工", "value": "regular"})
-        self.assertEqual(proposal["result"]["actions"][2]["payload"]["props"]["options"][1]["value"], "intern")
+        self.assertEqual(proposal["actions"][2]["payload"]["props"]["options"][1]["value"], "intern")
         self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
         self.assertEqual(proposal["presentation"]["title"], "员工入职登记表")
-        self.assertEqual(len(proposal["presentation"]["fields"]), 3)
+        self.assertEqual(len(proposal["actions"]), 3)
         self.assertEqual(set(result["output"]), {"form_proposal"})
         context.event_publisher.assert_awaited_once_with("form.proposal.completed", {
             "block_id": "form_proposal", "title": "表单设计提案", "status": "ready",
             "proposal": proposal,
         })
 
-    async def test_saved_canvas_insertion_publishes_latest_field_list(self):
+    async def test_saved_canvas_insertion_publishes_only_the_new_action_draft(self):
         from test_existing_canvas import saved_context
 
         context = SimpleNamespace(
@@ -269,15 +274,16 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         result = await self.agent.generate_form_proposal(context)
         proposal = result["output"]["form_proposal"]
         self.assertEqual(proposal["schemaVersion"], "1.1.0")
-        self.assertEqual(proposal["presentation"]["fieldCount"], 8)
-        self.assertEqual(proposal["presentation"]["fields"][2]["props"]["label"], "监护人")
-        self.assertEqual(proposal["result"]["mode"], "append")
-        self.assertEqual(len(proposal["result"]["actions"]), 1)
-        fields = proposal["presentation"]["fields"]
-        self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
+        assert_action_draft(self, proposal)
+        self.assertEqual(proposal["mode"], "append")
+        self.assertEqual(len(proposal["actions"]), 1)
+        payload = proposal["actions"][0]["payload"]
+        self.assertEqual(payload["target"], {"kind": "root", "index": 2})
+        self.assertEqual(payload["clientRef"], "guardian")
+        self.assertEqual(payload["props"]["label"], "监护人")
+        fields = apply_field_actions(context.context["currentSchema"]["fields"], proposal["actions"])
         self.assertEqual(len(fields), 8)
-        self.assertEqual([field.get("id") or field["clientRef"] for field in fields[:3]],
-                         ["2120435848718884864", "2120435848811159552", "guardian"])
+        self.assertEqual(fields[:2] + fields[3:], context.context["currentSchema"]["fields"])
         self.assertEqual(context.event_publisher.await_count, 1)
         self.assertEqual(context.event_publisher.await_args.args[1]["proposal"], proposal)
         self.assertNotIn("component", result["output"])
@@ -294,7 +300,7 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(proposal["status"], "needs_clarification")
         self.assertEqual(proposal["diagnostics"][0]["code"], "HOST_CONTEXT_REQUIRED")
         self.assertIn("supportedActionVersions", proposal["question"])
-        self.assertNotIn("result", proposal)
+        assert_non_executable(self, proposal)
         self.assertNotIn("component", result["output"])
         context.event_publisher.assert_awaited_once_with("form.proposal.completed", {
             "block_id": "form_proposal", "title": "表单设计提案", "status": "needs_clarification", "proposal": proposal,
@@ -347,10 +353,14 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "completed", result)
         proposal = result["output"]["form_proposal"]
         refs = [ref for ref, _, _ in definitions]
-        self.assertEqual([action["payload"]["clientRef"] for action in proposal["result"]["actions"]], refs)
+        self.assertEqual([action["payload"]["clientRef"] for action in proposal["actions"]], refs)
         self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
-        self.assertEqual([field["clientRef"] for field in proposal["presentation"]["fields"]], refs)
-        self.assertEqual(len(proposal["presentation"]["fields"]), 8)
+        assert_action_draft(self, proposal)
+        self.assertEqual(len(proposal["actions"]), 8)
+        self.assertEqual([action["payload"]["props"]["label"] for action in proposal["actions"]],
+                         [label for _, label, _ in definitions])
+        self.assertEqual(proposal["actions"][2]["payload"]["props"]["options"],
+                         [{"label": "男", "value": "male"}, {"label": "女", "value": "female"}])
         self.assertNotIn("component", result["output"])
         context.event_publisher.assert_awaited_once()
 

@@ -3,6 +3,7 @@ from copy import deepcopy
 import unittest
 
 from compiler_package import load_compiler_module
+from test_form_field_list import assert_action_draft, assert_non_executable
 
 MODULE = load_compiler_module("properties")
 COMPONENT_RULES = load_compiler_module("components")
@@ -36,9 +37,30 @@ def run(items, context=None, kind="property_changes", base=None):
 class PropertyTests(unittest.TestCase):
     def rejected(self, result, code=None, status="unsupported"):
         self.assertEqual(result["status"], status, result)
-        self.assertNotIn("result", result)
+        assert_non_executable(self, result)
         if code:
             self.assertEqual(result["diagnostics"][0]["code"], code, result)
+
+    def property_action(self, result, index=0):
+        self.assertEqual(result["status"], "ready", result)
+        assert_action_draft(self, result, "shared.component-property-checklist", property_actions=True)
+        return result["actions"][index]
+
+    def apply_property_action(self, context, action):
+        payload = action["payload"]
+        node = deepcopy(next(node for node in context["currentSchema"]["fields"] if node["id"] == payload["nodeId"]))
+        rules = COMPONENT_RULES.get_component_rules(node["componentName"])
+        prop, operation = payload["property"], payload["operation"]
+        self.assertEqual(action["preconditions"]["before"], rules.snapshot(node, prop))
+        if operation in {"set", "copy"}:
+            after = {"exists": True, "value": deepcopy(payload["value"])}
+        else:
+            self.assertNotIn("value", payload)
+            definition = context["capabilities"]["components"][node["componentName"]]["properties"][prop]
+            after = rules.after(node, prop, operation, {}, definition)
+        effects = rules.simulate(node, prop, after)
+        self.assertEqual(effects, action["display"]["effects"])
+        return node
 
     def test_stable_detached_checklist_and_mapping(self):
         context = host()
@@ -47,32 +69,34 @@ class PropertyTests(unittest.TestCase):
         first = run(items, context)
         self.assertEqual(first, run(items, context))
         self.assertEqual(context, before)
-        row = first["presentation"]["items"][0]
-        self.assertEqual(row["property"], "description")
-        self.assertFalse(row["selectedByDefault"])
-        self.assertEqual(row["before"], {"exists": False})
-        self.assertEqual(row["after"], {"exists": True, "value": "描述"})
-        action = first["result"]["actions"][0]
-        self.assertEqual(row["actionIds"], [action["actionId"]])
+        action = self.property_action(first)
         self.assertEqual(action["payload"]["property"], "description")
-        first["presentation"]["items"][0]["after"]["value"] = "mutated"
+        self.assertFalse(action["display"]["selectedByDefault"])
+        self.assertEqual(action["preconditions"]["before"], {"exists": False})
+        self.assertEqual(action["payload"]["value"], "描述")
+        applied = self.apply_property_action(context, action)
+        self.assertEqual(applied["props"]["extra"], "描述")
+        action["payload"]["value"] = "mutated"
         self.assertEqual(context, before)
+        self.assertEqual(run(items, context)["actions"][0]["payload"]["value"], "描述")
 
     def test_required_alias_access_effect(self):
         for alias in ("required", "必添", "requried"):
             result = run([change(alias, True)])
             self.assertEqual(result["status"], "ready", result)
-            row = result["presentation"]["items"][0]
-            self.assertEqual(row["before"], {"exists": True, "value": False})
-            self.assertIn("显示和编辑", row["effects"][0])
-            self.assertNotIn("access", result["result"]["actions"][0]["payload"])
+            action = self.property_action(result)
+            self.assertEqual(action["preconditions"]["before"], {"exists": True, "value": False})
+            self.assertIn("显示和编辑", action["display"]["effects"][0])
+            self.assertNotIn("access", action["payload"])
+            applied = self.apply_property_action(host(), action)
+            self.assertTrue(all(applied["props"]["access"][key] for key in ("visible", "editable", "required")))
 
     def test_all_seven_components_support_common_semantics(self):
         for component in sorted(MODULE.COMPONENTS):
             with self.subTest(component=component):
                 result = run([change()], host(component))
-                self.assertEqual(result["status"], "ready", result)
-                self.assertEqual(result["result"]["actions"][0]["payload"]["componentName"], component)
+                action = self.property_action(result)
+                self.assertEqual(action["payload"]["componentName"], component)
 
     def test_finite_types_and_intrinsic_ranges(self):
         for value in (True, "5", float("nan"), float("inf"), 11, 2):
@@ -112,11 +136,20 @@ class PropertyTests(unittest.TestCase):
         context = host("NumberPicker")
         result = run([change("defaultValue", {"mode": "custom", "value": 0})], context)
         self.assertEqual(result["status"], "ready", result)
-        self.assertEqual(result["presentation"]["items"][0]["after"]["value"]["value"], 0)
-        self.assertIn("成对", result["presentation"]["items"][0]["effects"][0])
+        action = self.property_action(result)
+        self.assertEqual(action["payload"]["value"], {"mode": "custom", "value": 0})
+        self.assertIn("成对", action["display"]["effects"][0])
+        applied = self.apply_property_action(context, action)
+        self.assertEqual(applied["props"]["defaultValue"], 0)
+        self.assertEqual(applied["props"]["defaultValueConfig"], "custom")
         context["currentSchema"]["fields"][0]["props"].update(defaultValueConfig="custom", defaultValue=4)
         cleared = run([change("defaultValue", operation="clear")], context)
-        self.assertEqual(cleared["presentation"]["items"][0]["after"], {"exists": True, "value": {"mode": "undefined"}})
+        action = self.property_action(cleared)
+        self.assertEqual(action["preconditions"]["before"], {"exists": True, "value": {"mode": "custom", "value": 4}})
+        self.assertEqual(action["payload"]["operation"], "clear")
+        applied = self.apply_property_action(context, action)
+        self.assertEqual(applied["props"]["defaultValueConfig"], "undefined")
+        self.assertNotIn("defaultValue", applied["props"])
         for value in ({"mode": "custom", "value": "0"}, {"mode": "custom", "value": True}, {"mode": "formula", "value": "1+1"}):
             self.rejected(run([change("defaultValue", value)], context))
 
@@ -126,15 +159,15 @@ class PropertyTests(unittest.TestCase):
         self.rejected(run([change("defaultValue", {"mode": "custom", "value": "2026-02-30"})], context), "INVALID_DATE")
         result = run([change("defaultValue", {"mode": "custom", "value": "2026-11-18"})], context)
         self.assertEqual(result["status"], "ready", result)
-        self.assertEqual(run([change("description", "说明")], context)["presentation"]["items"][0]["effects"], [])
-        self.assertIn("日期格式", run([change("format", "YYYY")], context)["presentation"]["items"][0]["effects"][0])
+        self.assertEqual(self.property_action(run([change("description", "说明")], context))["display"]["effects"], [])
+        self.assertIn("日期格式", self.property_action(run([change("format", "YYYY")], context))["display"]["effects"][0])
 
     def test_select_defaults_real_values_and_copy_incompatibility(self):
         context = host("SelectSingle")
         context["currentSchema"]["fields"][0]["props"]["options"] = {"dataSource": [{"primaryKey": "1", "value": "business", "label": "名称", "disabled": False}]}
         result = run([change("defaultValue", "business")], context)
         self.assertEqual(result["status"], "ready", result)
-        self.assertIn("activeKey", result["presentation"]["items"][0]["effects"][0])
+        self.assertIn("activeKey", self.property_action(result)["display"]["effects"][0])
         for value in ("名称", "1", "missing"):
             self.rejected(run([change("defaultValue", value)], context), "INVALID_DEFAULT_OPTION")
         source = deepcopy(host("NumberPicker")["currentSchema"]["fields"][0])
@@ -156,8 +189,12 @@ class PropertyTests(unittest.TestCase):
         context["resolvedProperties"] = {"b": {"placeholder": {"source": "default", "resolvedValue": "有效提示"}}}
         result = run([change(operation="copy", source_node_id="b")], context)
         self.assertEqual(result["status"], "ready", result)
-        self.assertEqual(result["result"]["actions"][0]["payload"]["value"], "有效提示")
-        self.assertEqual(result["presentation"]["items"][0]["source"]["stored"], {"exists": False})
+        action = self.property_action(result)
+        self.assertEqual(action["payload"]["value"], "有效提示")
+        self.assertEqual(action["payload"]["sourceNodeId"], "b")
+        self.assertEqual(action["payload"]["sourceProperty"], "placeholder")
+        self.assertEqual(action["payload"]["sourceSnapshot"]["stored"], {"exists": False})
+        self.assertEqual(self.apply_property_action(context, action)["props"]["placeholder"], "有效提示")
 
     def test_queries_without_action_version_and_inheritance(self):
         context = host()
@@ -168,7 +205,9 @@ class PropertyTests(unittest.TestCase):
         self.assertEqual(result["contractVersion"], "form_property_query.v1")
         row = result["presentation"]["items"][0]
         self.assertEqual((row["source"], row["resolvedValue"], row["stored"]), ("inherited", "right", {"exists": False}))
-        self.assertNotIn("result", result)
+        self.assertTrue(result["presentation"]["readOnly"])
+        for key in ("actions", "mode", "actionVersion", "result", "validation"):
+            self.assertNotIn(key, result)
         context["resolvedProperties"] = {"a": {"titleAlign": {"source": "inherited", "resolvedValue": "left"}}}
         self.assertEqual(run([query], context, "property_query")["presentation"]["items"][0]["resolvedValue"], "left")
 
@@ -200,14 +239,20 @@ class PropertyTests(unittest.TestCase):
 
     def test_reset_missing_vs_local_and_clear_different_from_default(self):
         context = host()
-        self.assertEqual(run([change("titleAlign", operation="reset")], context)["status"], "no_change")
+        unchanged = run([change("titleAlign", operation="reset")], context)
+        self.assertEqual(unchanged["status"], "no_change")
+        assert_non_executable(self, unchanged)
         context["currentSchema"]["fields"][0]["props"]["textAlign"] = "right"
-        row = run([change("titleAlign", operation="unset")], context)["presentation"]["items"][0]
-        self.assertEqual(row["before"], {"exists": True, "value": "right"})
-        self.assertEqual(row["after"], {"exists": False})
+        action = self.property_action(run([change("titleAlign", operation="unset")], context))
+        self.assertEqual(action["preconditions"]["before"], {"exists": True, "value": "right"})
+        self.assertEqual(action["payload"]["operation"], "unset")
+        self.assertNotIn("textAlign", self.apply_property_action(context, action)["props"])
         context = host("SelectSingle")
-        self.assertEqual(run([change("allowClear", operation="clear")], context)["presentation"]["items"][0]["after"]["value"], False)
-        self.assertEqual(run([change("allowClear", operation="reset")], context)["presentation"]["items"][0]["after"]["value"], True)
+        for operation, expected in (("clear", False), ("reset", True)):
+            with self.subTest(operation=operation):
+                action = self.property_action(run([change("allowClear", operation=operation)], context))
+                self.assertEqual(action["payload"]["operation"], operation)
+                self.assertEqual(self.apply_property_action(context, action)["props"]["allowClear"], expected)
         self.rejected(run([change("label", operation="clear")]), "TITLE_REQUIRED")
         self.rejected(run([change("step", operation="clear")], host("NumberPicker")), "CLEAR_UNSUPPORTED")
 
@@ -217,8 +262,9 @@ class PropertyTests(unittest.TestCase):
         self.rejected(run([change("requiredMessage", "必填")]), "PROPERTY_CONDITION_UNMET", "needs_clarification")
         result = run([change("requiredMessage", "必填"), change("required", True)])
         self.assertEqual(result["status"], "ready", result)
-        rows = result["presentation"]["items"]
-        self.assertEqual(rows[0]["dependsOn"], [rows[1]["changeId"]])
+        self.property_action(result)
+        actions = result["actions"]
+        self.assertEqual(actions[0]["dependsOn"], [actions[1]["actionId"]])
         self.rejected(run([change("requiredMessage", "必填"), change("required", True, selected=False)]), "SELECTION_DEPENDENCY", "needs_clarification")
 
     def test_identity_prototype_rules_and_unknown_compounds(self):
@@ -238,13 +284,18 @@ class PropertyTests(unittest.TestCase):
         item = {"capability": "form.property.rule", "slots": {"node_id": "a", "operation": "add", "rule_type": "length", "rule_id": "r1", "value": {"max": 10}}}
         result = run([item], context)
         self.assertEqual(result["status"], "ready", result)
-        self.assertEqual(result["result"]["actions"][0]["action"], "form.apply_property_rule")
+        self.assertEqual(result["actions"][0]["action"], "form.apply_property_rule")
         context["rules"]["a"] = [{"id": "r1", "type": "length", "value": {"max": 10}}]
         item["slots"].update(operation="remove")
         item["slots"].pop("value")
         result = run([item], context)
         self.assertEqual(result["status"], "ready", result)
-        self.assertEqual(result["presentation"]["items"][0]["after"], {"exists": False})
+        action = self.property_action(result)
+        self.assertEqual(action["payload"]["operation"], "remove")
+        self.assertEqual(action["payload"]["ruleId"], "r1")
+        self.assertNotIn("value", action["payload"])
+        self.assertEqual(action["preconditions"]["before"], {"exists": True, "value": {"max": 10}})
+        self.assertEqual(context["rules"]["a"], [{"id": "r1", "type": "length", "value": {"max": 10}}])
 
     def test_linkage_ast_action_version_and_references(self):
         context = host()
@@ -267,7 +318,7 @@ class PropertyTests(unittest.TestCase):
         self.rejected(run([item], context, "property_undo"), "ACTION_VERSION_UNSUPPORTED")
         context["supportedActionVersions"]["form.undo_property_transaction"] = [MODULE.PROPERTY_ACTION_VERSION]
         result = run([item], context, "property_undo")
-        self.assertEqual(result["result"]["actions"][0]["payload"], {"transactionId": "tx1", "revision": "r1"})
+        self.assertEqual(result["actions"][0]["payload"], {"transactionId": "tx1", "revision": "r1"})
         context["history"]["current"]["revision"] = "old"
         self.rejected(run([item], context, "property_undo"), "UNDO_UNAVAILABLE")
 
@@ -325,11 +376,19 @@ class PropertyTests(unittest.TestCase):
         context["nodePolicies"]["b"] = deepcopy(context["nodePolicies"]["a"])
         result = run([change("textLengthLimit", operation="copy", source_node_id="b")], context)
         self.assertEqual(result["status"], "ready", result)
-        self.assertEqual(result["presentation"]["items"][0]["after"]["value"], 30)
+        action = self.property_action(result)
+        self.assertEqual(action["payload"]["value"], 30)
+        self.assertEqual(action["payload"]["sourceSnapshot"]["stored"]["value"], {"enabled": True, "maxLength": 30})
+        self.assertEqual(self.apply_property_action(context, action)["props"]["textMaxLength"], 30)
         reset = run([change("textLengthLimit", operation="reset")], context)
-        self.assertEqual(reset["presentation"]["items"][0]["after"]["value"], {"enabled": False, "maxLength": 200})
+        action = self.property_action(reset)
+        self.assertEqual(action["payload"]["operation"], "reset")
+        applied = self.apply_property_action(context, action)
+        self.assertFalse(applied["props"]["showLimitHint"])
+        self.assertEqual(applied["props"]["textMaxLength"], 200)
         props["defaultValue"] = "stale"
-        self.assertEqual(run([change("defaultValue", operation="clear")], context)["status"], "ready")
+        cleared = self.property_action(run([change("defaultValue", operation="clear")], context))
+        self.assertNotIn("defaultValue", self.apply_property_action(context, cleared)["props"])
 
     def test_ir_extraneous_slots_and_unimplemented_json_schema(self):
         self.rejected(run([change(path=["props", "placeholder"])]), "INVALID_IR")
@@ -411,9 +470,11 @@ class PropertyTests(unittest.TestCase):
         result = run([change("options", value), change("defaultValue", "business")], context)
         self.assertEqual(result["status"], "ready", result)
         self.assertEqual(context, before)
-        rows = result["presentation"]["items"]
-        self.assertEqual(rows[1]["dependsOn"], [rows[0]["changeId"]])
-        self.assertIn("颜色", rows[0]["effects"][0])
+        self.property_action(result)
+        actions = result["actions"]
+        self.assertEqual(actions[1]["dependsOn"], [actions[0]["actionId"]])
+        self.assertIn("颜色", actions[0]["display"]["effects"][0])
+        self.assertEqual(actions[0]["payload"]["value"], value)
         removed = {**value, "dataSource": []}
         self.rejected(run([change("options", removed)], context), "OPTION_REFERENCE_CHECK_REQUIRED")
         renamed = deepcopy(value)

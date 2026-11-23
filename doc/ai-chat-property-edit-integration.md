@@ -1,14 +1,14 @@
-# 组件属性修改：ai-chat、设计器宿主接入待办与 Agent 输出协议
+# 单一动作草稿：Agent、ai-chat 与设计器宿主接入
 
-日期：2026-11-18；单提案展示契约更新：2026-11-20。
+契约更新：2026-11-23；Agent 目标包版本：1.2.12。
 
-协议状态：**三端接入契约**。Agent 1.2.0 已增加受控属性编译路径；本次目标版本为 1.2.10，用户已批准单 `form_proposal` 输出与注册组件 kind。ai-chat 和设计器宿主须同时兼容新旧 kind，验证结果由本次实施任务记录。实际 Agent 输入示例见 [property-context.example.json](./property-context.example.json)，Agent 包的功能与限制见 [README](../specialized-agent-package/README.md)。下列待办保留原三端整体交付清单，不将历史未勾选项或 Agent 能力声明视为宿主已部署。
+**本次调整 Agent 输出与文档；ai-chat 已交付对应前端接入，支持真实 context 中的 formDraftCapabilities、属性 bridge.apply({proposal, applyRequestId}) 和 appliedActionIds 回执，不需要 register。设计器宿主本次未修改，仍须完成新结构解析、编辑后草稿复验、原子应用和回执接入；完成联调前不能宣称三端可执行或已经部署。** 下列清单是接入和验收要求，未勾选项不表示某项目最新代码一定未实现，亦不构成部署证明。
 
-Agent 已收紧组件与属性能力缺失处理：目录缺失、空可写属性或未知属性返回 unsupported，summary/diagnostics 提供具体原因，不交付部分动作或可应用卡片。例如“禁用的姓名字段”在禁用语义及写入规则未声明时，说明“姓名可使用 Input，但暂时还不支持禁用”；不猜 disabled 或权限替代配置。ai-chat 应展示拒绝原因，宿主仍须验证最终动作；真实模型的语义识别与三端事件透传仍需平台验收。
+最终 output 只有 `{form_proposal: proposal}`。修改提案的顶层 actions 是唯一业务草稿，普通确认 presentation 只有 kind/title；用户编辑并勾选后提交 `{proposal: 最终提案}`。保留既有 protocol、contractVersion、动作名称和输入 IR，不提供旧格式兼容、双格式解析、迁移或本次结构的 v1/v2 门禁；schemaVersion 是可选画布元数据。
 
-Agent 包内业务规则入口：[动作规范](../specialized-agent-package/specs/actions.md)、[属性规则](../specialized-agent-package/specs/properties.md)、[组件目录](../specialized-agent-package/specs/components/README.md)。本次模块分层保持当前编译格式；根目录 AGENTS.md 已确认的单一 actions 草稿目标尚未在本次实施，本文现有 fields/items/result.actions 接入描述仍指当前路径。
+实际输入见 [property-context.example.json](./property-context.example.json)，支持范围见 [Agent README](../specialized-agent-package/README.md)，业务规则见[动作规范](../specialized-agent-package/specs/actions.md)、[属性规则](../specialized-agent-package/specs/properties.md)和[组件目录](../specialized-agent-package/specs/components/README.md)。[属性清单](./component-property-inventory.md)保留宿主源码核验依据和待办，实施时须结合最新源码复核。
 
-参考：[七类组件属性数据与 Agent 接入边界](./component-property-inventory.md)。宿主现状依据该清单记录的核验结果；实施前应结合宿主最新源码复核。
+组件目录缺失、空可写属性、未知属性或处理器缺失必须明确拒绝，summary/diagnostics 说明原因，不交付部分动作。例如未声明禁用语义时说明“姓名可使用 Input，但暂时还不支持禁用”，不得猜 disabled/readOnly 或用权限配置替代，也不能忽略用户要求后返回 ready。真实模型的语义识别与平台事件透传仍需验收。
 
 ## 1. 目标和范围
 
@@ -25,7 +25,7 @@ Agent 包内业务规则入口：[动作规范](../specialized-agent-package/spe
 - 撤销一次明确的应用事务。
 - 兼容同义词、口语和常见错别字；目标或语义不明确时追问。
 
-**本次文档的主要执行协议是修改属性。** 查询、独立规则、复制和撤销另列待办，不假定已经支持，也不借用修改属性载荷伪装支持。
+本文同时约束字段确认与属性确认；七组件属性语义、查询、独立规则、复制和撤销仍受真实能力及专用处理器限制，不能因统一 actions 就假定宿主已支持。
 
 应用成功只代表画布状态已更新，不代表已经保存到服务端。
 
@@ -34,8 +34,10 @@ Agent 包内业务规则入口：[动作规范](../specialized-agent-package/spe
 | 层级 | 职责 | 禁止混用 |
 | --- | --- | --- |
 | Agent | 识别意图、解析目标和语义值、澄清、编译受控提案 | 不生成持久化 ID，不直接操作 Store，不宣称已应用 |
-| ai-chat | 接收完整产物、展示卡片、维护勾选状态、提交选择、呈现回执 | 不根据中文文案解析动作，不把展示数据当成画布 Schema |
+| ai-chat | 接收完整产物、从 actions 投影卡片、维护唯一可编辑草稿、按 actionId 勾选并提交、呈现回执 | 不根据文案重建动作，不提交未编辑原载荷或第二份字段列表 |
 | 设计器宿主 | 提供真实上下文、验证能力、执行属性 helper、原子提交、撤销、保存 | 不直接 spread 任意模型属性，不跳过保存锁、引用检查和 revision 检查 |
+
+ai-chat 从真实 context 读取 `formDraftCapabilities`；该前端接入能力不替代 Agent 每轮所需的 capabilities、节点策略和真实处理器授权。属性应用直接调用 `bridge.apply({proposal, applyRequestId})`，proposal 是最终已编辑且已选择的草稿，applyRequestId 是独立 Apply 幂等键；没有前置 register 步骤。成功回执按 `appliedActionIds` 关联动作。这里只记录已交付的前端接口，不表示设计器宿主已经实现。
 
 数据链路：
 
@@ -43,36 +45,44 @@ Agent 包内业务规则入口：[动作规范](../specialized-agent-package/spe
 flowchart TD
     A[设计器发送 Schema、selection、revision 和能力目录] --> B[Agent 解析语义并编译提案]
     B --> C[完整提案事件]
-    C --> D[ai-chat 属性勾选卡片]
-    D --> E[proposalId 与 selectedChangeIds]
-    E --> F[宿主验证并调用语义属性执行器]
+    C --> D[ai-chat 编辑并勾选唯一 actions 草稿]
+    D --> E[提交最终 proposal；宿主独立 Apply 幂等键]
+    E --> F[宿主重新验证草稿并调用受支持处理器]
     F --> G[一次 Store 提交与一个撤销帧]
     G --> H[回执、画布刷新、最新上下文]
 ```
 
-复用现有 `form-agent.v1` 协议和 `form.proposal.completed` 事件名。用户于 2026-11-20 批准的展示契约为：
+复用现有 `form-agent.v1`、既有 contractVersion 和 `form.proposal.completed` 事件名；平台最终 output 通道不变。业务提案契约为：
 
-- 子 Agent 逻辑最终 output 仅为 `{ form_proposal: proposal }`，不附加 `component` 或复制 `props.proposal`。
-- 属性修改保留 `contractVersion = form_property_proposal.v1`，使用 `presentation.kind = shared.component-property-checklist`，完整保留 items、标题、before/after、依赖和 actionIds。
-- 字段列表使用 `presentation.kind = shared.table-field-confirm`，完整保留领域 fields/changes、选项和快照。
-- `result.schemaVersion = form_property_actions.v1`、`action = form.apply_property_change`、全部 `result.actions/target/validation` 与原协议保持一致。
+| 位置 | 约束 |
+| --- | --- |
+| proposal 顶层 | mode、actionVersion、actions；保留 proposalId、requestId、target、summary 等元数据，schemaVersion 可选 |
+| 普通修改 presentation | 仅 kind/title；字段使用 shared.table-field-confirm，属性使用 shared.component-property-checklist |
+| 每条 action | actionId、action、payload、dependsOn: actionId[]、display.selectedByDefault: boolean |
+| 属性变更前置条件 | preconditions.before={exists,value?}，从生成快照读取；exists=false 不带 value |
+| 派生说明 | 可选 display.effects: string[]；仅解释处理器派生影响，不携带新值副本或执行表达式 |
+| 目标新值 | set/copy 只在 payload.value；clear/unset/reset 无 value，规则与联动沿用既有载荷语义 |
 
-ai-chat 在完整 JSON、ready 状态、领域契约、kind 匹配及注册/业务白名单校验后，本地投影到已有组件 Props；原提案只传一份，不根据展示行重建动作。无效、未知或字段/属性错配 kind 不渲染确认卡，非 ready、只读查询、撤销或失败不因 kind 获得应用资格。旧 `form_field_list`、`component_property_checklist` 由 ai-chat 与宿主类型/校验器继续接受；历史有效显式 component 仍优先，显式存在但无效时不降级。这里的 `append` 表示增量应用，不表示将卡片列表或字段列表追加到旧列表。
+修改产物没有 result、validation、after 或重复 fields/items/changes；update 动作内部既有 payload.changes 属性映射不受此限制。before 是原状态而非新值副本，存储键缺失与 false/null/0/空字符串必须区分。
+
+只读查询是例外：保留 form_property_query.v1、component_property_query 的 readOnly/items，无 actions，不要求写动作版本。撤销也是专用路径：component_property_undo 保留真实 transactionId/canUndo，执行动作 form.undo_property_transaction 位于顶层 actions，不进入普通确认卡。因此修改确认的 kind/title 限制不覆盖查询和撤销。
+
+完整 JSON、ready、有效领域契约、匹配 kind、已注册且被业务白名单允许必须同时满足，才可展示对应确认卡；未知、无效或错配 kind 拒绝，不尝试其他卡片兜底。非 ready、只读查询和撤销不因设置 kind 获得普通应用资格。此次不解析旧 kind、显式 component 或旧嵌套动作格式。append 表示增量应用，不表示把卡片或字段列表追加到旧列表。
 
 ## 3. ai-chat 待办清单
 
 ### P0：属性勾选闭环
 
-- [ ] 按 `contractVersion` 和 `presentation.kind` 校验并投影到已有属性卡片，兼容注册 kind 与旧 kind；未知协议、无效或错配 kind 不渲染，不尝试其他卡片兜底。
-- [ ] 校验完整 JSON、状态、必填字段、唯一 ID、change/action 对应关系及支持的动作版本。
+- [ ] 按 contractVersion 和 presentation.kind 校验并投影字段/属性卡片；只接收本次统一结构，未知协议、无效或错配 kind 不渲染，不尝试其他卡片兜底。
+- [ ] 校验完整 JSON、状态、顶层 mode/actionVersion/actions、唯一 actionId、完整 payload、前置条件和依赖结构；普通修改 presentation 仅有 kind/title。
 - [ ] 实现卡片标题、逐项复选框、全选/半选、应用按钮、换一换及状态提示。
-- [ ] `selectedByDefault` 仅用于初始化；后续重渲染不覆盖用户手动勾选。
+- [ ] display.selectedByDefault 仅用于初始化；后续重渲染和重放不覆盖用户手动编辑或勾选。
 - [ ] 将用户明确要求的操作与额外建议区分；额外建议默认不勾选。
 - [ ] 每行对应一个完整语义操作；默认值模式和值、access 联动不能拆成独立叶子键勾选。
 - [ ] 展示派生影响，例如“必填，同时开启显示和编辑”；展示继承值与局部覆盖的区别。
-- [ ] 以 `changeId` 维护选中集合；提交 `selectedChangeIds`，不复用新增字段的 `selectedClientRefs`。
+- [ ] 按 actionId 勾选；字段 clientRef 仍是新节点身份。直接编辑唯一 actions 草稿，提交 `{proposal: 最终已编辑且已选择的提案}`；不另附 selectedClientRefs、selectedChangeIds、selectedActionIds 或 edits。
 - [ ] 空选择时禁用应用；应用过程中防重复点击；失败后保留选择和具体错误。
-- [ ] 有依赖时提示用户一并选择；不静默增加用户未选择的修改。
+- [ ] dependsOn 引用本批其他 actionId，无环或悬空依赖；新节点引用须依赖在前创建动作。依赖缺选明确阻止，不静默代选。删除建议后复验引用、依赖与位置；下标子集仅在整批纯新增、显式 root index 连续且可证明独立时重算，其他复杂位置子集拒绝或重新生成。
 - [ ] 同节点同属性的互斥设置阻止应用；不能采用最后一项覆盖来掩盖冲突。
 - [ ] 应用回执成功后显示实际结果及“尚未保存”；保存状态由宿主真实回执驱动。
 
@@ -84,7 +94,7 @@ ai-chat 在完整 JSON、ready 状态、领域契约、kind 匹配及注册/业�
 - [ ] SSE 重连按事件 ID 去重；取消、截断、失败不产生可应用结果。
 - [ ] “换一换”先获取最新上下文，再生成新 `proposalId`；旧卡片标记为被替换并禁止继续应用。
 - [ ] 卡片目标固定为生成时的节点，不随用户切换选中组件而改变。
-- [ ] 已应用提案不能换一组 changeId 再次执行；希望应用剩余项时基于新 revision 生成新提案。
+- [ ] 已应用提案不能换一组动作子集再次执行；希望应用剩余项时基于新 revision 生成新 proposalId。
 
 ### P1：其他意图
 
@@ -127,13 +137,13 @@ ai-chat 在完整 JSON、ready 状态、领域契约、kind 匹配及注册/业�
 - [ ] 恢复并完成实际 schemaId/baseRevision 比较；不能只校验字段存在而跳过比较。
 - [ ] revision 覆盖相关本地编辑，不仅是服务端保存版本；手工修改、撤销、重做也推进 revision。
 - [ ] 应用时按固定 nodeId 定位并验证 componentName；不重新绑定当前 selection。
-- [ ] 校验 before 语义快照及处理器读取的前置状态；继承值变化同样需要识别。
-- [ ] 在 Schema 副本上执行选中项，验证最终候选状态，然后通过一次比较并提交写入 Store。
-- [ ] 验证失败整批不提交，返回 changeId 和错误码；不出现半批成功。
+- [ ] 校验 action.preconditions.before 及处理器读取的前置状态，复制时复验来源；继承有效值变化同样需要识别。
+- [ ] 不把生成时校验视为编辑后授权；重新验证最终草稿的能力、payload、依赖、引用、动作顺序与位置，在 Schema 副本上执行并验证最终候选，通过一次比较并提交写 Store。
+- [ ] 验证失败整批不提交，以 actionId 关联具体错误；不出现半批成功。
 - [ ] 一批应用产生一个撤销帧，并记录实际联动修改和事务 ID。
 - [ ] 幂等绑定 applyRequestId 与请求指纹；同键同请求重试返回原回执，同键不同请求拒绝。
-- [ ] 将 proposalId 标记为已消费；换 changeId 子集重放旧提案也拒绝。
-- [ ] 提供实际已应用 changeId、新 revision、派生修改、unsaved 状态及撤销事务 ID。
+- [ ] 将 proposalId 标记为已消费；更换动作子集或编辑载荷重放旧提案也拒绝。
+- [ ] 提供实际已应用动作标识、新 revision、派生修改、unsaved 状态、撤销事务 ID 及新增 clientRef 到真实 ID 的映射；回执字段以宿主实际通道实现为准。
 - [ ] 接入现有保存链路，保存成功后以真实 Schema 和版本回读更新上下文。
 
 ### P1：规则、联动、查询、复制与撤销
@@ -155,10 +165,10 @@ ai-chat 在完整 JSON、ready 状态、领域契约、kind 匹配及注册/业�
 - [ ] 使用宿主真实节点和选项 value，目标重名、不存在或 selection 为空时澄清。
 - [ ] 值转换保留组件语义：文本默认值“1”为字符串，数字默认值为有限 number，0 是合法值。
 - [ ] 不虚构 width、disabled、maxLength、labelAlign 或 rules 等当前组件未声明的字段。
-- [ ] 只生成受控 IR；编译器生成稳定 changeId/actionId、展示文案和最终协议。
-- [ ] before 从快照读取；预览由宿主同语义处理器验证，不能将模型推测的 after 当作已验证结果。
+- [ ] 只生成既有受控 IR；编译器生成稳定 actionId、动作依赖及 display；不生成并列 changeId/展示业务数据副本。
+- [ ] preconditions.before 从快照读取；目标新值仅保留在 payload，派生说明在 display.effects；不输出 after，预览不能冒充宿主最终候选校验。
 - [ ] 缺少动作、复合处理器或规则运行时能力时返回 unsupported；需要用户决定时返回 needs_clarification。
-- [ ] 增加查询专用输出契约；查询成功不能伪装成 no_change 或可执行 ready 提案。
+- [ ] 保留查询专用只读结构；查询成功不能伪装成 no_change 或可执行修改提案，撤销也不能进入普通确认卡。
 - [ ] 增加七组件、口语、歧义、错误值、依赖、重置、规则和回执相关回归用例。
 
 ## 6. 属性语义与底层 Schema 映射
@@ -192,168 +202,108 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
 
 ## 7. Agent 最终输出 JSON 示例
 
-下面展示最终 output 中唯一 `form_proposal` 的完整内层对象，不是模型中间 IR；步骤输出为 `{ form_proposal: 下述对象 }`，不再另包 component。场景：调整“申请说明”的占位提示、默认值、必填、尺寸及标题对齐继承。示例 before 假定来自生成时快照；实际数据必须由编译器读取。
+以下是最终 output 的完整信封，不是输入 IR。示例假定目标、能力、动作版本和 before 均由真实宿主快照确认；不表示示例组件或属性在任意宿主都可执行。输入 plan_items、result_kind 和 slots 不因本次输出调整而变化。
+
+### 7.1 字段新增
+
+在当前根列表第 2 个下标插入“监护人”，保留已有组件。actionVersion 的 `1.0` 是示例宿主已声明的值，生产使用真实支持版本，不新增契约版本门禁。
 
 ```json
 {
-  "protocol": "form-agent.v1",
-  "contractVersion": "form_property_proposal.v1",
-  "schemaVersion": "1.1.0",
-  "catalogVersion": "component-properties.v1",
-  "proposalId": "proposal-property-001",
-  "requestId": "request-property-001",
-  "status": "ready",
-  "target": {
-    "schemaId": "form-example",
-    "baseRevision": "rev-10"
-  },
-  "summary": "调整申请说明字段的属性。",
-  "diagnostics": [],
-  "presentation": {
-    "kind": "shared.component-property-checklist",
-    "title": "是否将申请说明字段的属性设置为：",
-    "items": [
-      {
-        "changeId": "change-placeholder",
-        "nodeId": "field-example",
-        "property": "placeholder",
-        "text": "设置占位提示为“请输入申请说明”",
-        "selectedByDefault": true,
-        "before": { "exists": true, "value": "" },
-        "after": { "exists": true, "value": "请输入申请说明" },
-        "actionIds": ["action-placeholder"],
-        "dependsOn": [],
-        "effects": []
-      },
-      {
-        "changeId": "change-default",
-        "nodeId": "field-example",
-        "property": "defaultValue",
-        "text": "默认值设置为“1”",
-        "selectedByDefault": false,
-        "before": { "exists": true, "value": { "mode": "undefined" } },
-        "after": { "exists": true, "value": { "mode": "custom", "value": "1" } },
-        "actionIds": ["action-default"],
-        "dependsOn": [],
-        "effects": ["同时设置默认值模式和内容"]
-      },
-      {
-        "changeId": "change-required",
-        "nodeId": "field-example",
-        "property": "required",
-        "text": "将字段设置为必填",
-        "selectedByDefault": true,
-        "before": { "exists": true, "value": false },
-        "after": { "exists": true, "value": true },
-        "actionIds": ["action-required"],
-        "dependsOn": [],
-        "effects": ["开启显示和编辑，并同步必填权限"]
-      },
-      {
-        "changeId": "change-size",
-        "nodeId": "field-example",
-        "property": "size",
-        "text": "设置该组件的大小为“大”",
-        "selectedByDefault": true,
-        "before": { "exists": true, "value": "medium" },
-        "after": { "exists": true, "value": "large" },
-        "actionIds": ["action-size"],
-        "dependsOn": [],
-        "effects": []
-      },
-      {
-        "changeId": "change-align",
-        "nodeId": "field-example",
-        "property": "titleAlign",
-        "text": "清除标题对齐的单独设置，恢复继承表单",
-        "selectedByDefault": false,
-        "before": { "exists": true, "value": "right" },
-        "after": { "exists": false },
-        "actionIds": ["action-align"],
-        "dependsOn": [],
-        "effects": ["有效对齐方式由表单配置决定"]
-      }
-    ]
-  },
-  "result": {
-    "kind": "form_actions",
+  "form_proposal": {
+    "protocol": "form-agent.v1",
+    "contractVersion": "form_agent_proposal.v1",
+    "proposalId": "proposal-field-001",
+    "requestId": "request-field-001",
+    "status": "ready",
+    "target": {"schemaId": "form-example", "baseRevision": "rev-10"},
+    "summary": "在学号后新增监护人。",
     "mode": "append",
-    "schemaVersion": "form_property_actions.v1",
+    "actionVersion": "1.0",
+    "actions": [
+      {
+        "actionId": "add-field-001",
+        "action": "form.add_component",
+        "payload": {
+          "clientRef": "guardian",
+          "componentName": "Input",
+          "props": {"label": "监护人", "name": "guardian", "required": false},
+          "target": {"kind": "root", "index": 2}
+        },
+        "dependsOn": [],
+        "display": {"selectedByDefault": true}
+      }
+    ],
+    "presentation": {"kind": "shared.table-field-confirm", "title": "新增字段建议"}
+  }
+}
+```
+
+动作顺序确定。字段 IR 默认追加由编译器转成明确 root index，位置为最后字段之后、尾部非字段之前；原始 root 动作无 index 才是物理根列表末尾。多个新增按执行后列表下标递增，不能重复同一锚点导致顺序颠倒。
+
+引用本批新节点的后续受支持动作，dependsOn 必须包含创建动作 actionId，clientRef 不作为勾选 ID。取消创建动作后不可静默保留其依赖。整批纯新增且显式 root index 连续为 2、3 时只选后者，须证明序列独立再重算为 2；混有其他位置/引用影响、复杂位置或无法证明时拒绝该子集并要求重生成。删除建议是改草稿，删除已有画布节点是 form.remove_component，两者不能混用。
+
+### 7.2 属性修改
+
+修改“申请说明”的占位提示并恢复标题对齐继承。before 从生成快照读取；set 的唯一新值在 payload.value，unset 无 value。用户可取消第二项或直接编辑第一项 payload.value，再提交同一草稿。
+
+```json
+{
+  "form_proposal": {
+    "protocol": "form-agent.v1",
+    "contractVersion": "form_property_proposal.v1",
+    "schemaVersion": "1.1.0",
+    "catalogVersion": "component-properties.v1",
+    "proposalId": "proposal-property-001",
+    "requestId": "request-property-001",
+    "status": "ready",
+    "target": {"schemaId": "form-example", "baseRevision": "rev-10"},
+    "summary": "调整申请说明字段的属性。",
+    "mode": "append",
+    "actionVersion": "form_property_actions.v1",
     "actions": [
       {
         "actionId": "action-placeholder",
         "action": "form.apply_property_change",
         "payload": {
-          "nodeId": "field-example",
-          "componentName": "Input",
-          "property": "placeholder",
-          "operation": "set",
-          "value": "请输入申请说明"
-        }
-      },
-      {
-        "actionId": "action-default",
-        "action": "form.apply_property_change",
-        "payload": {
-          "nodeId": "field-example",
-          "componentName": "Input",
-          "property": "defaultValue",
-          "operation": "set",
-          "value": { "mode": "custom", "value": "1" }
-        }
-      },
-      {
-        "actionId": "action-required",
-        "action": "form.apply_property_change",
-        "payload": {
-          "nodeId": "field-example",
-          "componentName": "Input",
-          "property": "required",
-          "operation": "set",
-          "value": true
-        }
-      },
-      {
-        "actionId": "action-size",
-        "action": "form.apply_property_change",
-        "payload": {
-          "nodeId": "field-example",
-          "componentName": "Input",
-          "property": "size",
-          "operation": "set",
-          "value": "large"
-        }
+          "nodeId": "field-example", "componentName": "Input",
+          "property": "placeholder", "operation": "set", "value": "请输入申请说明"
+        },
+        "preconditions": {"before": {"exists": true, "value": ""}},
+        "dependsOn": [],
+        "display": {"selectedByDefault": true}
       },
       {
         "actionId": "action-align",
         "action": "form.apply_property_change",
         "payload": {
-          "nodeId": "field-example",
-          "componentName": "Input",
-          "property": "titleAlign",
-          "operation": "unset"
-        }
+          "nodeId": "field-example", "componentName": "Input",
+          "property": "titleAlign", "operation": "unset"
+        },
+        "preconditions": {"before": {"exists": true, "value": "right"}},
+        "dependsOn": [],
+        "display": {"selectedByDefault": false, "effects": ["有效对齐方式由表单配置决定"]}
       }
-    ]
+    ],
+    "presentation": {"kind": "shared.component-property-checklist", "title": "属性修改建议"}
   }
 }
 ```
 
-### 7.1 必须共同实现的约束
+### 7.3 共同约束
 
-- 顶层 `schemaVersion` 是可选的画布 Schema 元数据，不设白名单；`result.schemaVersion` 是必须校验的动作协议版本，两者不能混用。
-- 本版限定一行对应一个语义动作，即 actionIds 长度为 1；复合属性的多个底层效果全部封装在处理器内。
-- changeId、actionId 各自唯一；每个动作恰好属于一行，禁止存在未展示动作或复用动作。
-- changeId 在同一个 proposal 中稳定；换一换生成新 proposal，不依靠旧 changeId 复用授权。
-- before/after 表示语义配置状态，exists=false 不带 value；有效继承值由解析器额外计算，不能误当成本地存储值。
-- effects 是解释性展示，不能包含可执行表达式；宿主使用相同目录和处理器验证并补充实际派生影响。
-- 先构造完整候选状态，检测互斥和条件，再生成预览；不能以任意执行顺序决定相互矛盾操作的结果。
-- 非 ready 状态不携带可执行 result。needs_clarification 提供 question/choices；unsupported 提供 diagnostics；no_change 用于修改请求已经满足的情况。
-- 当前基础协议保留不变；新增解析器、编译器和执行器完成前，宿主不得声明支持此版本。
+- schemaVersion 只作可选画布元数据；actionVersion 才是动作版本。字段/通用、属性修改、只读查询分别保留既有 contractVersion，不引入旧新结构双解析。
+- 每行对应一个完整语义动作，以 actionId 勾选；复合语义的底层联动效果封装在处理器内，不另生成叶子动作或展示 items。
+- dependsOn 引用本批其他 actionId，唯一且无环；引用本批新节点须依赖在前创建动作。任何选择/编辑后都复验依赖、引用、顺序及最终候选，不静默补选依赖。
+- preconditions.before 表示原语义存储状态，exists=false 无 value；继承有效值与本地覆盖分开解析。copy 的来源身份、权限、来源快照也需复验，payload.value 是唯一拟写入值。
+- display.effects 只解释派生影响，不能放执行表达式、after 或第二份目标新值；派生效果不能代替真实处理器校验。
+- 非 ready 没有执行动作或可应用确认卡。needs_clarification 提供 question/choices，unsupported 提供原因，no_change 表示请求已满足。
+- 查询保留 component_property_query、readOnly/items 且无 actions；撤销使用真实事务的 component_property_undo 专用展示与顶层动作。二者不受普通确认 kind/title 限制，也不转为普通确认卡。
+- 生成校验不授权编辑后草稿；宿主新解析、完整语义校验和执行器完成前不得宣称支持。本仓库不修改宿主，不新增平台 API 或事件。
 
 ## 8. 流式交付约定
 
-保留原最终业务事件载荷如下；proposal 位置放第 7 节完整 JSON 对象，不追加 component 或第二份提案。
+保留原最终业务事件名及载荷键；proposal 位置放第 7 节信封中的 form_proposal 内层对象，不再套 form_proposal、不追加 component 或第二份提案。
 
 ```json
 {
@@ -374,34 +324,60 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
 
 ## 9. ai-chat 应用请求
 
-用户选择占位提示、必填和尺寸后：
+用户将第 7.2 节占位提示改为“请说明申请原因”，并只选择该动作后，业务正文为：
 
 ```json
 {
-  "proposalId": "proposal-property-001",
-  "selectedChangeIds": [
-    "change-placeholder",
-    "change-required",
-    "change-size"
-  ],
-  "expectedRevision": "rev-10",
-  "applyRequestId": "apply-property-001"
+  "proposal": {
+    "protocol": "form-agent.v1",
+    "contractVersion": "form_property_proposal.v1",
+    "schemaVersion": "1.1.0",
+    "catalogVersion": "component-properties.v1",
+    "proposalId": "proposal-property-001",
+    "requestId": "request-property-001",
+    "status": "ready",
+    "target": {"schemaId": "form-example", "baseRevision": "rev-10"},
+    "summary": "调整申请说明字段的属性。",
+    "mode": "append",
+    "actionVersion": "form_property_actions.v1",
+    "actions": [
+      {
+        "actionId": "action-placeholder",
+        "action": "form.apply_property_change",
+        "payload": {
+          "nodeId": "field-example", "componentName": "Input",
+          "property": "placeholder", "operation": "set", "value": "请说明申请原因"
+        },
+        "preconditions": {"before": {"exists": true, "value": ""}},
+        "dependsOn": [],
+        "display": {"selectedByDefault": true}
+      }
+    ],
+    "presentation": {"kind": "shared.component-property-checklist", "title": "属性修改建议"}
+  }
 }
 ```
 
-宿主从本轮已校验提案登记表取得完整动作，不信任聊天侧临时传入的另一个动作集合。若产品允许编辑建议值，必须生成并重新校验一个新提案版本，不能只改卡片文案或原地修改已登记动作。
+业务正文中的 proposal 只含最终已编辑且已选择的草稿。display.selectedByDefault 仅用于初始 UI 状态，最终 actions 是否包含该动作才表达选择。禁止另传 selectedClientRefs、selectedChangeIds、selectedActionIds、edits 或原始动作副本。不可只改文案后仍提交未编辑原动作；也不要求用户手动编辑后再次调用模型生成提案。
 
-执行顺序：
+已交付的属性前端接口直接调用 `bridge.apply({proposal, applyRequestId})`；applyRequestId 与 proposal 并列传给 bridge，不进入 proposal，不是一份选择数据。它是宿主 Apply 的独立幂等键，与 /invoke 幂等键无关，不新增平台 API/header。幂等指纹必须绑定最终草稿，不能只绑定原提案或 proposalId。前端读取真实 context 的 formDraftCapabilities，不虚构宿主声明。
 
-1. 查提案，检查未被替换、未消费以及内容指纹。
-2. 检查请求 revision 与提案 baseRevision、宿主当前 revision 一致。
-3. 验证选中 ID 非空、唯一、存在，且依赖已满足。
-4. 按 nodeId 查询真实节点，校验组件类型、目录版本、保存锁、布局和 before。
-5. 在副本上运行处理器，检查最终状态、引用和所有派生影响。
-6. 提交前再次比较 revision，成功后一次写 Store，生成一个历史帧并推进 revision。
-7. 记录幂等回执、消费提案，向聊天和 Agent 上下文回传真实结果。
+没有 register 调用或提案预注册前置要求；宿主须直接校验 apply 收到的最终草稿，内部消费/幂等记录不构成第二套前端登记协议。需要实现的执行顺序为：
+
+1. 解析最终 proposal，检查协议、状态、唯一 actionId、非空动作和展示路由，固定原目标、baseRevision、动作身份等不可由普通值编辑改变的元数据。
+2. 检查独立 Apply 幂等键及最终请求指纹；同键同请求返回原回执，同键不同请求拒绝。拒绝已被替换或消费的旧提案换子集重放。
+3. 检查 schemaId/formId 等固定目标和 baseRevision 与当前画布一致，校验动作版本、真实能力、目录版本、保存锁及布局设备条件。
+4. 按真实 nodeId 定位，复验组件类型、preconditions.before 及复制来源。用户编辑只改变受允许的 payload 值，不能改写 before 以绕过并发检测。
+5. 按数组顺序验证完整依赖和受控引用；取消项不得留下悬空 clientRef。下标相关子集仅在整批纯新增、显式 root index 连续且可证明独立时重算位置；其他复杂位置或无法证明保持原意的子集拒绝或重生成，不静默代选。
+6. 在副本上运行受支持的属性、选项、转换或其他动作处理器，验证完整最终候选、互斥条件、引用与实际派生影响。类型转换不能靠 UI 猜迁移结果；缺少处理器明确拒绝。
+7. 提交前再次比较 revision，全部成功后一次原子写 Store、推进 revision，生成一个实际历史帧与事务 ID。任一步失败整批不提交。
+8. 记录实际请求的幂等回执和提案消费状态，向聊天及下一轮 Agent 上下文同步真实结果；保存仍走现有设计器链路。
+
+以上是本次未修改宿主必须完成的接入要求，不能以 Agent 生成成功或 ai-chat 已展示卡片替代。
 
 ## 10. 宿主回执
+
+已交付的属性前端 bridge 按 appliedActionIds 识别实际应用的动作，不使用独立 changeId，也不需要 register。下例列出该回执标识及宿主接入所需的事务信息；事务详情和错误码仍须宿主实际实现，不表示平台新增事件或现有宿主已经提供全部字段。回执实际差异来自宿主处理器，不能由 Agent 输出提前伪造。
 
 ### 10.1 应用成功
 
@@ -410,19 +386,14 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
   "status": "applied",
   "proposalId": "proposal-property-001",
   "applyRequestId": "apply-property-001",
-  "appliedChangeIds": ["change-placeholder", "change-required", "change-size"],
+  "appliedActionIds": ["action-placeholder"],
   "schemaId": "form-example",
   "previousRevision": "rev-10",
   "revision": "rev-11",
   "transactionId": "transaction-property-001",
   "unsaved": true,
   "actualChanges": [
-    { "nodeId": "field-example", "operation": "set", "path": ["props", "placeholder"], "value": "请输入申请说明" },
-    { "nodeId": "field-example", "operation": "set", "path": ["props", "access", "visible"], "value": true },
-    { "nodeId": "field-example", "operation": "set", "path": ["props", "access", "editable"], "value": true },
-    { "nodeId": "field-example", "operation": "set", "path": ["props", "access", "required"], "value": true },
-    { "nodeId": "field-example", "operation": "set", "path": ["props", "required"], "value": true },
-    { "nodeId": "field-example", "operation": "set", "path": ["props", "size"], "value": "large" }
+    { "nodeId": "field-example", "operation": "set", "path": ["props", "placeholder"], "value": "请说明申请原因" }
   ]
 }
 ```
@@ -440,21 +411,19 @@ actualChanges 是宿主计算的实际差异；未改变的路径可以省略。
   "expectedRevision": "rev-10",
   "actualRevision": "rev-12",
   "message": "画布已发生变化，请刷新组件状态后重新生成建议。",
-  "appliedChangeIds": []
+  "appliedActionIds": []
 }
 ```
 
-其他建议错误码：TARGET_NOT_FOUND、COMPONENT_TYPE_MISMATCH、PROPERTY_UNSUPPORTED、VALUE_INVALID、PROPERTY_LOCKED、DEPENDENCY_UNSATISFIED、BEFORE_MISMATCH、CATALOG_VERSION_MISMATCH、PROPOSAL_CONSUMED、IDEMPOTENCY_CONFLICT。除 revision conflict 外可返回 rejected，并附 changeId 和具体原因；整批不提交。
+其他建议错误码：TARGET_NOT_FOUND、COMPONENT_TYPE_MISMATCH、PROPERTY_UNSUPPORTED、VALUE_INVALID、PROPERTY_LOCKED、DEPENDENCY_UNSATISFIED、BEFORE_MISMATCH、CATALOG_VERSION_MISMATCH、PROPOSAL_CONSUMED、IDEMPOTENCY_CONFLICT。除 revision conflict 外可返回 rejected，并附 actionId 和具体原因；无法安全重算位置的子集也应明确说明并整批拒绝。错误码是接入建议，不表示宿主已经提供。
 
 ## 11. 如何改变画布 Schema
 
-第 9 节只选择占位提示、必填、尺寸，因此：
+第 9 节只提交用户改过值的占位提示动作，因此宿主验证后：
 
-- 更新目标节点 props.placeholder。
-- 通过 access helper 开启 visible/editable/required，并维护兼容 required。
-- 更新 props.size=large。
-- 默认值及标题对齐保持原样，因为对应行未勾选。
-- 节点 id、props.name、identifiers、选项身份、其他字段、布局和未知属性全部保留。
+- 将目标节点 props.placeholder 设置为“请说明申请原因”，而非原建议值。
+- 标题对齐覆盖不删除，因为该动作没有出现在最终 actions。
+- 节点 id、props.name、identifiers、选项身份、其他属性、字段和布局均保留。
 
 宿主在 Schema 副本上递归查找 nodeId，按当前支持的布局和节点范围执行。children 中的字段只有在目录明确声明支持时才允许编辑；能递归定位不等于已经支持容器或 Grid 编辑。提交 Store 后，画布和属性面板通过现有订阅刷新，不操作 DOM，也不使用聊天展示字段替换整份 Schema。
 
@@ -462,18 +431,22 @@ actualChanges 是宿主计算的实际差异；未改变的路径可以省略。
 
 - [ ] 七组件的合法标量修改与属性面板得到一致结果；非法类型、范围和枚举被拒绝。
 - [ ] “必添”“不能为空”“提示文字”等口语映射正确；“大一点”“加个规则”等歧义进入澄清。
-- [ ] 仅应用勾选项，未选择项及所有无关配置保持不变。
+- [ ] 字段、属性均从唯一 actions 草稿展示；手动编辑后应用真实编辑值，仅执行最终包含的动作，无重复 fields/items/changes/result/validation 或选择 ID 副本。
+- [ ] set/copy 唯一新值在 payload；clear/unset/reset 无 value，before 保留原状态，无 after；不存在、false/null/0/空串不混淆。
+- [ ] 仅应用勾选项，未选择项及所有无关配置保持不变；actionId 与 clientRef 身份用途不混淆。
+- [ ] 新节点引用依赖创建动作；缺选依赖、悬空引用阻止提交且不静默代选。仅整批纯新增、显式 root index 连续且可证明独立时可为部分选择重算下标，其他复杂位置子集拒绝。
 - [ ] 必填与可见/编辑联动一致，默认值模式和值原子更新。
 - [ ] showLimitHint/textMaxLength 成组生效，关闭长度限制语义明确。
 - [ ] 数字默认值 0、文本默认值“1”、日期/时间格式和下拉默认项得到正确处理。
 - [ ] 日期只改描述不影响自定义占位提示；保存锁无法绕过。
 - [ ] unset 恢复继承，reset 与关闭功能不同；JSON 丢失 undefined 不影响清空语义。
 - [ ] 空选择、依赖缺失、互斥修改、节点删除、组件变更均阻止整批应用。
-- [ ] 生成后手动编辑、撤销或重做触发 revision conflict；不静默覆盖新状态。
+- [ ] 生成后画布手工修改、撤销或重做推进 revision，并使旧提案触发 conflict；卡片内编辑仅更新草稿，仍以生成时 baseRevision/before 复验。
 - [ ] 重复点击、网络重试、双完成事件、SSE 重放不重复执行。
 - [ ] 换一换后旧卡片不可应用；同提案不能分多个子集反复应用。
 - [ ] 一次应用可按宿主历史规则一次撤销；保存并重开后属性和运行效果一致。
-- [ ] 查询不修改 Schema；不支持的规则、联动或布局明确返回不支持。
+- [ ] 查询保持 component_property_query 的 readOnly/items，无 actions、不修改 Schema；撤销保持 component_property_undo 专用展示与顶层动作，不进入普通确认卡。
+- [ ] 不支持的规则、联动、转换处理器或布局明确返回不支持，编辑后草稿重新校验能力、before、依赖、引用、顺序和最终候选，不能借生成时校验绕过。
 - [ ] 唯一性、公式、关联字段等外部依赖能力只有联调通过后才出现在能力目录中。
 
 ## 13. 推荐交付顺序

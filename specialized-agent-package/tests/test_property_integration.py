@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 
+from test_form_field_list import assert_action_draft
 import test_output_preview
 
 
@@ -64,8 +65,10 @@ class PropertyIntegrationTests(IsolatedAsyncioTestCase):
         proposal = result["output"]["form_proposal"]
         self.assertEqual(proposal["status"], "ready", proposal)
         self.assertEqual(proposal["contractVersion"], "form_property_proposal.v1")
-        self.assertEqual(proposal["presentation"]["kind"], "shared.component-property-checklist")
-        self.assertEqual(proposal["result"]["schemaVersion"], "form_property_actions.v1")
+        assert_action_draft(self, proposal, "shared.component-property-checklist", property_actions=True)
+        self.assertEqual(proposal["actionVersion"], "form_property_actions.v1")
+        self.assertEqual(proposal["actions"][0]["payload"]["value"], "请输入说明")
+        self.assertEqual(proposal["actions"][0]["preconditions"]["before"], {"exists": True, "value": ""})
         self.assertEqual(snapshot, before)
         self.assertEqual(set(result["output"]), {"form_proposal"})
         context.event_publisher.assert_awaited_once_with("form.proposal.completed", {
@@ -90,7 +93,11 @@ class PropertyIntegrationTests(IsolatedAsyncioTestCase):
         proposal = result["output"]["form_proposal"]
         self.assertEqual(proposal["status"], "ready", proposal)
         self.assertEqual(proposal["presentation"]["kind"], "component_property_query")
-        self.assertNotIn("result", proposal)
+        self.assertTrue(proposal["presentation"]["readOnly"])
+        self.assertEqual(len(proposal["presentation"]["items"]), 1)
+        self.assertEqual(proposal["presentation"]["items"][0]["stored"], {"exists": True, "value": ""})
+        for key in ("actions", "mode", "actionVersion", "result", "validation"):
+            self.assertNotIn(key, proposal)
         self.assertNotIn("component", result["output"])
         context.event_publisher.assert_awaited_once_with("form.proposal.completed", {
             "block_id": "form_proposal", "title": "表单设计提案", "status": "ready", "proposal": proposal,
@@ -114,8 +121,16 @@ class PropertyIntegrationTests(IsolatedAsyncioTestCase):
         result = await self.agent.generate_form_proposal(context)
         proposal = result["output"]["form_proposal"]
         self.assertEqual(proposal["status"], "ready", proposal)
-        self.assertEqual(proposal["presentation"]["kind"], "component_property_undo")
-        self.assertEqual(proposal["result"]["actions"][0]["action"], action)
+        self.assertEqual(proposal["presentation"], {"kind": "component_property_undo", "title": "撤销属性修改", "transactionId": "tx-1", "canUndo": True})
+        self.assertEqual(proposal["mode"], "append")
+        self.assertEqual(proposal["actionVersion"], "form_property_actions.v1")
+        self.assertNotIn("result", proposal)
+        self.assertNotIn("validation", proposal)
+        self.assertEqual(len(proposal["actions"]), 1)
+        self.assertEqual(proposal["actions"][0]["action"], action)
+        self.assertEqual(proposal["actions"][0]["payload"], {"transactionId": "tx-1", "revision": "rev-1"})
+        self.assertEqual(proposal["actions"][0]["dependsOn"], [])
+        self.assertEqual(proposal["actions"][0]["display"], {"selectedByDefault": True})
         self.assertNotIn("component", result["output"])
         context.event_publisher.assert_awaited_once_with("form.proposal.completed", {
             "block_id": "form_proposal", "title": "表单设计提案", "status": "ready", "proposal": proposal,
@@ -138,7 +153,7 @@ class PropertyIntegrationTests(IsolatedAsyncioTestCase):
         ]}
         result = self.agent.compile_platform_proposal(ir, snapshot)["output"]["form_proposal"]
         self.assertEqual(result["status"], "ready", result)
-        self.assertEqual(result["result"]["actions"][0]["action"], "form.apply_property_rule")
+        self.assertEqual(result["actions"][0]["action"], "form.apply_property_rule")
         self.assertEqual(snapshot["rules"]["field-1"][0]["id"], "rule-1")
 
     def test_normalization_preserves_new_host_fields_and_copies_them(self):

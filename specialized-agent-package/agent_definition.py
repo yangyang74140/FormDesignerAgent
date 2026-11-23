@@ -167,7 +167,7 @@ async def generate_form_proposal(step_context: Any) -> Any:
             "查询必须读取 resolvedProperties 和真实 Schema，区分本地、继承和默认值；查询输出只读，不产生修改动作。撤销必须引用真实 history 事务，不能生成反向覆盖补丁。",
             "本轮上下文包括 resolvedProperties、history 和 capabilities.nodePolicies；保存锁、设备和布局限制不能绕过。最终动作只在宿主声明支持的协议版本下生成。" ,
             "当前组件绑定发送时 selection.nodeId；无选择且目标依赖当前组件时必须澄清。",
-            "首期不生成容器、槽位或 Grid 目标；不把 presentation.fields 全量展示快照当作替换画布或保存的数据。",
+            "首期不生成容器、槽位或 Grid 目标；最终只返回 actions 草稿，presentation 只声明注册 kind 和标题，用户确认后才由宿主应用，不直接替换画布或保存。",
             "字段类型转换只允许明确标记为未保存的新字段；有损转换必须先澄清。",
             "规则和公式只能引用真实字段或本批 clientRef，不得生成 SQL、eval、JavaScript 或未注册函数。",
             "executionResult 为 applied 前只能说已生成提案；applied 也不能声称已保存。conflict 时必须刷新上下文。",
@@ -359,7 +359,7 @@ def register_agent(context: Any) -> None:
             plan_template_key="standard_generation",
             success_criteria=[
                 "读取 requestId、schemaVersion、target、currentSchema、selection、canvas、capabilities 和动作版本",
-                "新建时一次性返回完整字段列表和同源 form.add_component 动作",
+                "新建时一次性返回包含全部字段的唯一 form.add_component 动作草稿",
                 "所有字段名、选项、组件和动作通过 Python 编译器校验",
                 "修改现有表单使用最小增量动作并保留无关配置",
             ],
