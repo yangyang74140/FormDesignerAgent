@@ -59,7 +59,7 @@ Agent 依据宿主真实上下文生成建议；ai-chat 展示并维护用户确
 
 ## 5. 已确认的单一动作输出契约
 
-以下为本次统一实施的业务契约。Agent 与 ai-chat 按共同契约调整；**本次不修改设计器宿主，其解析、复验和应用链路仍须接入，不能据此宣称已经部署或可直接执行**。
+以下为统一实施的业务契约。Agent 与 ai-chat 按共同契约调整；2026-11-23 经用户确认，指定本地设计器已接入 PC Flow 属性草稿的解析、复验、原子应用与回执，不兼容旧结构。**本地接入不代表已经部署，未支持的组件、布局和规则等能力仍须明确拒绝**。
 
 - 最终 output 固定为 `{form_proposal: proposal}`；保留既有 `protocol/contractVersion`，`schemaVersion` 只作可选画布元数据。修改提案的 `mode/actionVersion/actions` 均位于 proposal 顶层，不再输出 `result`、`validation` 或重复字段/变更清单。
 - 每条动作为 `{actionId, action, payload, dependsOn, display}`；`dependsOn` 是 actionId 数组，`display.selectedByDefault` 为布尔值。属性变更另有 `preconditions.before={exists,value?}`；原状态只保留在此处，新值只保留在 payload。可选 `display.effects` 仅解释派生影响，不复制目标新值或执行指令。

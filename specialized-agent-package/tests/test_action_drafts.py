@@ -78,6 +78,18 @@ class ActionDraftTests(unittest.TestCase):
         self.assert_draft(proposal, "shared.table-field-confirm")
         self.assertEqual(proposal["actions"][0]["payload"], {"nodeId": "reason", "changes": {"label": "标题"}})
 
+    def test_removal_is_a_default_selected_confirmation_card_with_fixed_targets(self):
+        proposal = compile_items([
+            {"capability": "proposal.begin", "slots": {"summary": "删除事由和类型字段", "title": "删除字段", "result_kind": "form_actions"}},
+            {"capability": "form.remove_component", "slots": {"payload": {"useSelection": True}}},
+            {"capability": "form.remove_component", "slots": {"payload": {"nodeId": "draft-choice"}}},
+        ])
+        self.assert_draft(proposal, "shared.table-field-confirm")
+        self.assertEqual(proposal["mode"], "append")
+        self.assertEqual([action["action"] for action in proposal["actions"]], ["form.remove_component"] * 2)
+        self.assertEqual([action["payload"] for action in proposal["actions"]], [{"nodeId": "reason"}, {"nodeId": "draft-choice"}])
+        self.assertEqual(proposal["target"]["baseRevision"], "rev-10")
+
     def test_new_reference_dependencies_are_explicit(self):
         proposal = compile_items([
             {"capability": "proposal.begin", "slots": {"summary": "新增校验", "result_kind": "form_actions"}},

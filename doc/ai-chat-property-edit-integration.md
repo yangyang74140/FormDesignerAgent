@@ -2,7 +2,7 @@
 
 契约更新：2026-11-23；Agent 目标包版本：1.2.13。
 
-**本次调整 Agent 输出与文档；ai-chat 已交付对应前端接入，支持真实 context 中的 formDraftCapabilities、属性 bridge.apply({proposal, applyRequestId}) 和 appliedActionIds 回执，不需要 register。设计器宿主本次未修改，仍须完成新结构解析、编辑后草稿复验、原子应用和回执接入；完成联调前不能宣称三端可执行或已经部署。** 下列清单是接入和验收要求，未勾选项不表示某项目最新代码一定未实现，亦不构成部署证明。
+**Agent 与 ai-chat 使用单一 actions 草稿；ai-chat 支持真实 context 中的 formDraftCapabilities、属性 bridge.apply({proposal, applyRequestId}) 和 appliedActionIds 回执，不需要 register。2026-11-23 属性回执修复已将用户指定的本地设计器接入这一契约：仅 PC Flow 已支持的属性处理器，应用时复验最终草稿并原子提交；不表示已部署，也不开放未实现的查询卡、撤销卡、规则、联动或复制。** 下列清单是完整接入和验收要求，未勾选项不表示某项目最新代码一定未实现，亦不构成部署证明。
 
 最终 output 只有 `{form_proposal: proposal}`。修改提案的顶层 actions 是唯一业务草稿，普通确认 presentation 只有 kind/title；用户编辑并勾选后提交 `{proposal: 最终提案}`。保留既有 protocol、contractVersion、动作名称和输入 IR，不提供旧格式兼容、双格式解析、迁移或本次结构的 v1/v2 门禁；schemaVersion 是可选画布元数据。
 
@@ -37,7 +37,7 @@
 | ai-chat | 接收完整产物、从 actions 投影卡片、维护唯一可编辑草稿、按 actionId 勾选并提交、呈现回执 | 不根据文案重建动作，不提交未编辑原载荷或第二份字段列表 |
 | 设计器宿主 | 提供真实上下文、验证能力、执行属性 helper、原子提交、撤销、保存 | 不直接 spread 任意模型属性，不跳过保存锁、引用检查和 revision 检查 |
 
-ai-chat 从真实 context 读取 `formDraftCapabilities`；该前端接入能力不替代 Agent 每轮所需的 capabilities、节点策略和真实处理器授权。属性应用直接调用 `bridge.apply({proposal, applyRequestId})`，proposal 是最终已编辑且已选择的草稿，applyRequestId 是独立 Apply 幂等键；没有前置 register 步骤。成功回执按 `appliedActionIds` 关联动作。这里只记录已交付的前端接口，不表示设计器宿主已经实现。
+ai-chat 从真实 context 读取 `formDraftCapabilities`；该前端接入能力不替代 Agent 每轮所需的 capabilities、节点策略和真实处理器授权。属性应用直接调用 `bridge.apply({proposal, applyRequestId})`，proposal 是最终已编辑且已选择的草稿，applyRequestId 是独立 Apply 幂等键；没有前置 register 步骤。成功回执按 `appliedActionIds` 关联动作。用户指定的本地设计器已接入此属性路径；完整生产部署及其他能力仍须按真实处理器和验收状态判断。
 
 数据链路：
 
@@ -240,6 +240,8 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
 ```
 
 动作顺序确定。字段 IR 默认追加由编译器转成明确 root index，位置为最后字段之后、尾部非字段之前；原始 root 动作无 index 才是物理根列表末尾。多个新增按执行后列表下标递增，不能重复同一锚点导致顺序颠倒。
+
+删除已有字段也使用 `shared.table-field-confirm`：Agent 输出默认选中的 `form.remove_component` 动作，消费端按固定节点 ID 读取真实快照展示名称和类型，纯删除卡仅提供“删除”。取消勾选或显示卡片不改画布，点击后仅提交所选 actions；宿主复验并原子删除，成功回执提示未保存并支持撤销。当前本地设计器处理器仅开放已注册的普通顶层字段，拒绝系统字段、容器、失效/歧义目标及最终候选中的业务引用，并清理 Flow/Grid 画布位置、草稿和失效选中态。此说明不代表已部署到平台。
 
 引用本批新节点的后续受支持动作，dependsOn 必须包含创建动作 actionId，clientRef 不作为勾选 ID。取消创建动作后不可静默保留其依赖。整批纯新增且显式 root index 连续为 2、3 时只选后者，须证明序列独立再重算为 2；混有其他位置/引用影响、复杂位置或无法证明时拒绝该子集并要求重生成。删除建议是改草稿，删除已有画布节点是 form.remove_component，两者不能混用。
 

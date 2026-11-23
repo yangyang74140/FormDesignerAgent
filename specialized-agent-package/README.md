@@ -22,7 +22,7 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 
 先读 [规范入口](./specs/README.md)，再按改动阅读 [动作规范](./specs/actions.md)、[公共属性规则](./specs/properties.md) 或 [组件目录](./specs/components/README.md)。组件属性与专有处理放在 `components/definitions/` 下的同名文件，如 `NumberPicker.py`；`Input.TextArea` 使用 `InputTextArea.py`。新增组件复用公共属性，仅将多个组件实际共享的规则和处理提取到 `_shared/`，由 `registry.py` 统一注册，不继续集中到提案编译器。
 
-本文采用用户已确认的单一 actions 草稿契约，保留模型输入 IR 和既有动作语义。**设计器宿主本次未修改，仍须完成新结构解析、用户草稿复验和应用接入。** ai-chat 同期按共同契约调整；本地输出与文档不代表三端已部署，不提供旧格式解析、迁移或结构版本分流。
+本文采用用户已确认的单一 actions 草稿契约，保留模型输入 IR 和既有动作语义。2026-11-23 用户指定的本地设计器已接入 PC Flow 既有属性处理器的最终草稿复验、原子应用和 appliedActionIds 回执；ai-chat 同步读取真实完成事件信封。**本地验证不代表三端已部署，也不扩展未实现的规则、联动、复制或查询/撤销卡片。** 不提供旧格式解析、迁移或结构版本分流。
 
 ## 支持范围
 
@@ -115,11 +115,11 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 
 返回提案只包含本次动作，不附已有画布的完整快照或第二份展示变更列表。字段编译器输出明确 root index，按执行顺序递增；原始 root 动作省略 index 表示物理根列表末尾，与字段 IR 默认插入在末尾非字段之前不同。标签匹配、目标选择仍是输入 IR 的解析行为，最终动作固定真实目标。
 
-ai-chat 从 actions 派生预览并维护唯一草稿。取消或删除新增建议是移除草稿动作；删除画布已有节点是 form.remove_component。引用本批新 clientRef 的动作须依赖创建动作 actionId，缺选依赖不得静默代选。只选择连续新增中的部分项时须复验位置；仅可对整批纯新增、显式 root index 连续且可证明独立的序列按保留顺序重算 index，其他复杂位置子集拒绝或重新生成。完整规则见[动作规范](./specs/actions.md)。
+ai-chat 从 actions 派生预览并维护唯一草稿。取消或删除新增建议是移除草稿动作；删除画布已有节点是 form.remove_component，同样使用字段卡且默认选中，名称和类型从宿主快照读取。纯删除卡点击“删除”后才提交所选动作并由宿主移除字段，点击前不改画布；成功提示尚未保存并保留宿主撤销。引用本批新 clientRef 的动作须依赖创建动作 actionId，缺选依赖不得静默代选。只选择连续新增中的部分项时须复验位置；仅可对整批纯新增、显式 root index 连续且可证明独立的序列按保留顺序重算 index，其他复杂位置子集拒绝或重新生成。完整规则见[动作规范](./specs/actions.md)。
 
 类型转换的默认值、属性迁移与有损决定交给已支持处理器，不能从展示投影伪造完成。应用后刷新真实 Schema；规则、公式和选项的完整引用校验也依赖宿主实际处理器。
 
-### 宿主接入要求（本次未修改设计器宿主）
+### 宿主接入要求（本地既有属性处理器已接入，其他能力须逐项验证）
 
 1. 完整提案到达后校验状态、contractVersion、actionVersion、kind 与业务白名单，按 proposalId 去重。普通确认从 actions 派生展示，以 actionId 勾选；选项保留真实 value，不能以展示标签重建动作。
 2. 用户编辑直接写入唯一草稿的 payload。提交 `{proposal: 最终已编辑且已选择的提案}`，不另传选择 ID、edits 或未编辑原载荷。Apply 幂等键通过宿主独立通道传递；/invoke 幂等不能替代 Apply。
@@ -127,7 +127,7 @@ ai-chat 从 actions 派生预览并维护唯一草稿。取消或删除新增建
 4. 在副本上由受支持处理器验证全部语义后原子提交，记录独立 Apply 幂等、提案消费状态和一个撤销事务。遇到冲突刷新 context 重生成，不能应用旧下标。
 5. 应用只更新画布。保存由设计器与既有后端接口完成；真实 Schema、revision、unsaved 状态及新增 ID 映射由宿主回传，聊天展示以真实结果为准。
 
-本仓库负责 Agent 生成、确定性编译和返回协议。ai-chat 已交付真实 context 的 formDraftCapabilities 支持；属性前端直接调用 `bridge.apply({proposal, applyRequestId})`，按 appliedActionIds 读取回执，无 register 步骤。applyRequestId 独立于 proposal，生成校验不授权编辑后的载荷。设计器宿主本次未修改，新解析与校验、画布执行器及保存闭环仍须接入，不能将前端交付视为三端已部署证明。
+本仓库负责 Agent 生成、确定性编译和返回协议。ai-chat 已交付真实 context 的 formDraftCapabilities 支持；属性前端直接调用 `bridge.apply({proposal, applyRequestId})`，按 appliedActionIds 读取回执，无 register 步骤。applyRequestId 独立于 proposal，生成校验不授权编辑后的载荷。指定本地设计器已接入 PC Flow 既有属性处理器的新解析、草稿复验、原子应用和回执；保存仍走独立链路，其他能力不因本次接入自动开放，不能将本地验证视为三端已部署证明。
 
 ## 运行编排
 

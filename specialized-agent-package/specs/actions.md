@@ -1,6 +1,6 @@
 # 表单动作规范
 
-这是本次实施的单一动作契约。这些是表单动作，不复用页面动作的 payload 或执行器。**设计器宿主本次未修改，必须先完成解析、复验和原子应用接入，不能以 Agent ready 推断已经可执行。**
+这是本次实施的单一动作契约。这些是表单动作，不复用页面动作的 payload 或执行器。2026-11-23 用户指定的本地设计器已接入 PC Flow 既有属性处理器的解析、复验和原子应用；不能以 Agent ready 推断其他动作可执行，也不能据此宣称已部署。
 
 ## 层次与共同前置条件
 
@@ -48,6 +48,8 @@
 3. 字段 IR 默认追加表示最后一个字段之后，category 缺省视为字段；末尾非字段节点保留在后方。编译器必须输出明确 root index，因此该默认行为与原始 root 无 index 的物理末尾追加有区别。
 4. 字段 IR 的 target 可用 anchorName、anchorLabel、useSelection 唯一解析真实锚点，再为连续新增生成递增 root index，保持字段原顺序。缺失或歧义须澄清。
 5. 原始 `target={kind:"relative",anchorNodeId:"真实ID",position:"before"或"after"}` 仅接受已有真实锚点，不开放 clientRef 锚点。部分组件更新仍依赖现有节点类型；引用检查不会自动授予所有动作以 clientRef 为目标的能力。不支持 Grid、容器和槽位位置。
+
+删除已有字段使用同一 `shared.table-field-confirm` 卡片，`form.remove_component` 动作默认 `display.selectedByDefault=true`；展示名称和类型由消费端从宿主真实快照按固定节点身份读取，不在 payload 增加字段配置副本。纯删除卡主按钮为“删除”，用户可取消勾选，点击前不得修改画布；点击后只提交所选 actions，宿主复验并原子删除，成功后提示未保存并保留撤销。
 
 取消或删除一条建议只修改尚未应用的 actions 草稿；删除已有节点须有 `form.remove_component` 及能力授权。移除创建动作后必须处理依赖和引用，不能留下悬空动作或静默补选创建动作。格式、选项、开关等属性依赖也统一引用 actionId。
 

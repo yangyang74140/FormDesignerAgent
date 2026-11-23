@@ -1,6 +1,6 @@
 # 属性规则与宿主授权
 
-本规范保留七类组件已定义的属性语义，并统一使用顶层 actions 草稿。修改确认的 presentation 仅含 `shared.component-property-checklist` 的 kind/title；没有属性 items、after 或第二份目标新值。**设计器宿主本次未修改，仍须接入最终草稿复验与执行。** 本地组件定义只代表 Agent 理解和校验范围，宿主每轮声明才决定实际能力；未核验的组件或属性不自行补充。
+本规范保留七类组件已定义的属性语义，并统一使用顶层 actions 草稿。修改确认的 presentation 仅含 `shared.component-property-checklist` 的 kind/title；没有属性 items、after 或第二份目标新值。2026-11-23 用户指定的本地设计器已接入 PC Flow 既有处理器的最终草稿复验与执行，未实现能力仍不得开放；这不表示已部署。 本地组件定义只代表 Agent 理解和校验范围，宿主每轮声明才决定实际能力；未核验的组件或属性不自行补充。
 
 ## 规则的组织方式
 
@@ -65,7 +65,7 @@
 
 每批先在副本上模拟，再按最终候选状态校验值、条件与联动。默认值依赖本批格式或选项变更；提示内容依赖对应开关。`dependsOn` 统一引用本批其他动作 actionId，无重复、自依赖、环或悬空引用；默认勾选或用户最终选择缺少依赖时明确阻止，不静默代选。同节点同语义重复、互斥设置及派生影响冲突均拒绝。权限及复合语义的底层效果封装在同一个处理器内，不能拆成独立叶子动作供勾选。
 
-ai-chat 直接编辑 payload 并按 actionId 选择同一 actions 草稿，提交 `{proposal: 最终已编辑且已选择的提案}`。不得将改动只写进卡片文案后仍提交原始动作，也不另传选择 ID 列表或 edits。编辑不改变原 before；已交付的 ai-chat 属性接口直接调用 `bridge.apply({proposal, applyRequestId})`，无 register 步骤，回执使用 appliedActionIds。前端支持真实 context 的 formDraftCapabilities；applyRequestId 独立于 proposal，宿主须以它关联最终请求指纹，相关宿主实现本次未修改。
+ai-chat 直接编辑 payload 并按 actionId 选择同一 actions 草稿，提交 `{proposal: 最终已编辑且已选择的提案}`。不得将改动只写进卡片文案后仍提交原始动作，也不另传选择 ID 列表或 edits。编辑不改变原 before；已交付的 ai-chat 属性接口直接调用 `bridge.apply({proposal, applyRequestId})`，无 register 步骤，回执使用 appliedActionIds。前端支持真实 context 的 formDraftCapabilities；applyRequestId 独立于 proposal，宿主须以它关联最终请求指纹，指定本地宿主已按此最小属性链路接入；仍以其真实处理器及部署状态为准。
 
 | 情况 | 状态或典型错误码 |
 | --- | --- |
