@@ -154,15 +154,26 @@ your_external_agent/
 | 任务情况 | `needs_capability` | `candidate_capabilities` | 能力绑定 |
 |----------|--------------------|--------------------------|----------|
 | 不需要外部能力，平台已有附件内容或模型即可完成 | `False` | `[]` | 不绑定，或只绑定不参与本任务的其他能力 |
-| 有能力更好，但没有也能完成 | `None` | 填真实可用的 SDK 绑定 ID | `with_capability_asset(..., required=False)` |
-| 没有能力就无法完成 | `True` | 必须填真实可用的 SDK 绑定 ID | `with_capability_asset(..., required=True)` |
+| 默认情况，交给平台按本次任务判断 | `None`（推荐，可省略） | 可省略，也可填写推荐的 SDK 绑定 ID | 按真实依赖声明 |
+| 有能力更好，但没有也能完成 | `None` | 可填推荐的 SDK 绑定 ID | `with_capability_asset(..., required=False)` |
+| 该意图通常依赖平台 Skill / MCP 才能完成 | `True`（慎用） | 可填推荐的 SDK 绑定 ID | 确实不可缺失时才用 `required=True` |
 
 这里有两个容易混淆的开关：
 
-- `needs_capability` 控制本次任务规划时是否倾向走能力调用：`False` 不要求能力，`None` 由平台结合上下文判断，`True` 表示任务依赖能力。
+- `needs_capability` 是计划提示：`False` 表示通常不依赖平台能力，但不禁止用户明确要求的工具；`None` 表示默认自动判断，可搭配候选；`True` 提示通常需要平台能力，也不能直接创建 `tool_call`。
 - `with_capability_asset(..., required=...)` 控制能力依赖缺失时是否阻断插件：`required=False` 只表示能力可以缺失，不表示 Plan 必须调用它。
 
-因此，`needs_capability=True` 不能和空的 `candidate_capabilities=[]` 一起使用；这会让 Plan 被要求调用能力，却没有可执行候选。只依靠平台已装配的附件解析结果进行文档分析时，应使用 `needs_capability=False`、`candidate_capabilities=[]`；有一个可选的外部整理能力时，才使用 `None` 加候选能力。
+默认保留 `None`。不要因为“需要生成 JSON”“会调用 HTTP”“需要做规划”就填 `True`；这些不等于需要平台 Skill / MCP。只依靠附件内容、模型或子编排 HTTP 完成时，可以写 `False`，也可以保留默认由计划判断。候选只是推荐，不是已选能力、白名单或调用保证。
+
+| 候选和实际工具情况 | 处理 |
+|---|---|
+| 未填候选或 `[]`，绑定池有工具 | 计划仍可考虑全部本次已授权可用工具 |
+| 写了候选，但不存在、未授权、不可用或与任务无关 | 不会因此授权或强制调用；仍可选择其他已绑定可用工具 |
+| 有工具但都无关 | 不强挑工具，按现有计划判断信息缺口；不编造查询结果 |
+| 没有任何可用工具，即使 `True` | 维持无工具保护，不生成 `tool_call`；依据已有事实回答，缺实时数据时如实说明 |
+| 计划最终确实生成 `tool_call` | 进入工具判断；仅子编排已有充分完成证据且通过受控零调用判定可免调，提示字段不能静默跳过 |
+
+受控零调用只对本次已执行子编排的专项生效，原因和证据须进入执行追踪。内部工具步骤自动获得前序结果；外层获得子编排执行结果。失败、无关、部分完成或状态未知不等于任务完成；公共通用工具行为不放宽。详见 Output Pipeline 的“子编排完成后的受控零调用”，不要通过返回 `satisfied_plan_step_ids` 直接清除工具义务。
 
 | `planner_hint` 字段 | 用途 |
 |----------------------|------|
@@ -173,6 +184,30 @@ your_external_agent/
 | `risk_level` | 告诉 Plan 这个任务风险高低 |
 
 简单理解：意图族负责“识别用户要做什么”；Plan 负责“本次运行如果进入规划阶段，怎么更稳地完成”；`planner_hint` 负责“外置新增意图进入 Plan 时，不要让 Plan 只靠通用规则猜”。
+
+#### 3.4.1 四个字段不要当成一个“能力开关”
+
+下面四个配置分别解决不同问题，不能互相替代：
+
+| 配置 | 解决的问题 | 不会做什么 |
+|------|------------|------------|
+| `.use_plan()` | 声明这个 Bundle 可以使用公共 Plan 配置 | 不保证每次运行都生成 Plan |
+| `planner_hint.needs_capability` | 告诉 Plan 这个意图是否倾向需要能力 | 不会绑定能力，也不会创建工具 |
+| `planner_hint.candidate_capabilities` | 告诉 Plan 可以考虑哪些候选能力 | 不会授权、启用或注入这些能力 |
+| `.with_capability_asset(..., required=...)` | 声明运行时真正依赖的能力 | 不会让意图自动命中，也不替代 `planner_hint` |
+
+推荐默认写法：
+
+```python
+builder.planner_hint(
+    needs_capability=None,
+    candidate_capabilities=[],  # 可填推荐 ID；不填也能使用已绑定的其他工具。
+)
+```
+
+`True + []` 在协议上允许，但通常没有必要：它不会绑定、授权或制造工具。`required=True` 才是“此依赖缺失时阻断运行”的门禁，不能用 `needs_capability=True` 替代。已发布包也不应依赖候选列表强制调用，必须让计划按任务决定。
+
+`.use_plan()` 只是配置声明。寒暄、普通问答或没有计划价值的请求可以直接回答；是否实际生成 Plan 由运行时结合用户输入、意图、能力和输出策略决定。
 
 ### 3.5 做意图族时什么时候绑定子编排
 
@@ -392,6 +427,25 @@ async def build_page_patch(context):
 | 不跨 Run 共享 | 想长期保存请走 Memory、业务库或产物存储，不要把它当全局变量 |
 | 唯一入口 | 新插件和新文档都只使用 `context`，不再保留旧专项运行输入字段 |
 
+### 3.12 上传前强制自检
+
+在线开发保存可以直接读取工作区文件；ZIP 上传必须额外经过“打包后文件名和路径”检查。请按下面顺序自检，任何一项失败都先修复再上传：
+
+1. 包内只有一个插件根，并且能找到 `manifest.yaml`、`bootstrap.py`、`agent_definition.py`。
+2. `manifest.yaml` 文件名准确，必填字段和版本字段没有改名或改类型。
+3. `bootstrap.py` 存在 `register_specialized_agent(context)`，`agent_definition.py` 最终调用 `.register()`。
+4. 每个结构化 intent 只有一个有效 `output_policy` 来源。检查 intent、family map、family default 和 base family；重复时删除多余声明。
+5. 每个非 `text_only` 策略都能找到同名 `.output_pipeline(key=...)`，并且 `artifact_kind`、`output_type`、step 列表一致。
+6. ZIP 使用 UTF-8 文件名标志。中文文件名解压后必须和源码中的名字完全一致；乱码会被服务器识别成依赖缺失。
+7. 运行 `python -m py_compile bootstrap.py agent_definition.py`，再运行 `python -m zipfile -l your-agent.zip` 检查压缩包实际目录。
+
+最常见的两个错误对应关系：
+
+| 错误 | 根因 | 修复 |
+|------|------|------|
+| `output_policy_conflict` | 同一个 intent 在多个层级声明了产物策略 | 只保留 intent、family map、family default、base family 中的一处 |
+| 依赖文件缺失 / 找不到中文文件 | ZIP 文件名没有正确写入 UTF-8 标志 | 重新使用支持 UTF-8 文件名的工具打包并重新检查 |
+
 ## 意图模式
 
 ## 4. 先选一种意图模式
@@ -503,6 +557,19 @@ builder.use_generic_intent()
 
 错误示例：不要写 `output_policy="pipeline"`，除非你真的注册了一个 key 就叫 `pipeline` 的 Output Pipeline。
 
+**强制规则：同一个 intent 只能有一个有效的产物策略来源。** `intent.output_policy`、`family.output_policy[intent_key]`、`family.default_output_policy` 和 `base_family` 是互斥的产物策略来源。解析器有优先级只是为了确定合法声明的读取顺序，不能用来覆盖重复配置。
+
+推荐选择：
+
+| 场景 | 只保留哪一处 |
+|------|--------------|
+| 不同 intent 使用不同 Pipeline | 每个 intent 的 `output_policy` |
+| 同一 family 的所有 intent 使用同一 Pipeline | 只有在确认生成后的 intent payload 没有策略时才用 `family.default_output_policy`；当前 SDK 推荐各 intent 明确写 |
+| 同一 family 中只有少数 intent 使用 Pipeline | `family.output_policy[intent_key]`，或更推荐直接写对应 intent |
+| 普通文本 | 不写产物策略，默认 `text_only` |
+
+当前 SDK 的 `builder.intent()` 默认值是 `text_only`。因此结构化产物优先在目标 intent 上明确写 Pipeline key；不要同时给 family default、family map 和 intent 配同一个 key。否则会报 `output_policy_conflict`，修复时删掉多余层级，而不是修改 Pipeline 名称。
+
 ```python
 document_family = builder.intent_family(
     key="document_analysis",
@@ -533,6 +600,7 @@ builder.use_append_intent(families=[document_family])
 - `boundary` 和 `examples` 不填不会阻断注册，但弱模型识别稳定性会下降，会产生 warning。
 - `fallback_intent` 必须指向当前 family 里的一个 intent。
 - 如果 intent 的 `output_policy` 不是 `text_only`，必须注册同名 Output Pipeline。
+- 上传前必须确认同一个 intent 在 intent、family map、family default、base family 链路上没有第二个产物型策略。
 
 ### 4.3 `replace` 覆盖意图
 
@@ -656,6 +724,10 @@ builder.use_replace_intent(families=[private_family])
 
 错误示例：不要写 `output_policy="pipeline"`，除非你真的注册了一个 key 就叫 `pipeline` 的 Output Pipeline。
 
+**强制规则：同一个 intent 只能有一个有效的产物策略来源。** `intent.output_policy`、`family.output_policy[intent_key]`、`family.default_output_policy` 和 `base_family` 是互斥的产物策略来源。解析器有优先级只是为了确定合法声明的读取顺序，不能用来覆盖重复配置。
+
+推荐选择：不同 intent 使用不同 Pipeline 时，只在各自 intent 写；全部 intent 使用同一 Pipeline 时，只有在确认生成后的 intent payload 没有策略时才用 family 的 `default_output_policy`，当前 SDK 更推荐各 intent 明确写；只有少数 intent 使用 Pipeline 时，只在 family map 或对应 intent 二选一。普通文本不需要显式写 `text_only`。
+
 ```python
 document_family = builder.intent_family(
     key="document_analysis",
@@ -686,6 +758,22 @@ builder.use_append_intent(families=[document_family])
 - `boundary` 和 `examples` 不填不会阻断注册，但弱模型识别稳定性会下降，会产生 warning。
 - `fallback_intent` 必须指向当前 family 里的一个 intent。
 - 如果 intent 的 `output_policy` 不是 `text_only`，必须注册同名 Output Pipeline。
+- 上传前必须确认同一个 intent 在 intent、family map、family default、base family 链路上没有第二个产物型策略。
+
+#### 4.2.5 意图不是关键词开关
+
+`trigger_keywords` 只是辅助证据，平台会结合 family 描述、边界、正例、反例和用户原话，由模型做白名单意图判断。不要把它写成“出现某个词就一定进入专项”的硬路由。
+
+常见误解：
+
+| 误解 | 实际行为 |
+|------|----------|
+| `append` 会无条件优先命中 | `append` 只是把新 family 加入公共集合，是否命中仍由意图识别决定；未命中时回到公共意图 |
+| `fallback_intent` 是拒答分支 | 它是当前 family 内的回退任务，必须指向已有 intent；不是“无法处理”的错误分支 |
+| 只写关键词就够了 | 缺少 `description`、`boundary`、`examples` 和 `negative_examples` 时，重叠意图更容易误判 |
+| `replace` 是给公共意图加优先级 | `replace` 表示替换公共意图集合，首版不作为真实平台生产路径 |
+
+建议每个专项 family 至少写清：负责什么、明确不负责什么、三条真实正例、一条相近但不应命中的反例，以及没有明确命中时的合理 `fallback_intent`。
 
 ## manifest.yaml
 
@@ -848,6 +936,34 @@ create_external_agent(context)
 - 未声明输出时，归一化默认普通文本输出；未声明 `output_policy` 时默认 `text_only`。
 - `use_*` / `with_*` 是运行语义，不是仅登记：平台会按声明装配模块、能力快照、事件和门禁。
 
+### 8.4 文件生成能力开关
+
+外置 Agent 的 `file_generate` 默认关闭。包内没有调用 `use_file_generation()`，或运行入口中缺少
+`file_generation.enabled` 字段时，平台不会把文件生成工具加入工具列表、能力候选或计划候选。
+
+需要文件生成的 Agent 必须在 `agent_definition.py` 中显式声明：
+
+```python
+builder.use_file_generation(enabled=True)
+```
+
+SDK 会写入：
+
+```json
+{
+  "state_machine_config": {
+    "entry_config": {
+      "file_generation": {
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+运行时同时受平台全局 `FILE_GENERATION_ENABLED` 控制：员工级开关或全局开关任一关闭，都不能调用文件生成。
+页面生成、知识问答等不需要文件产物的 Agent 不要调用该方法；字段缺失即按关闭处理。只在提示词中写“不要生成文件”不算关闭，必须依赖此运行时开关。
+
 ### 8.1 委派目标声明
 
 ```python
@@ -884,6 +1000,12 @@ builder.with_persona(
 
 包校验通过只代表声明符合结构约束，不证明目标当前可委派。目标缺少非空委派说明时会被运行候选过滤，平台还会检查目标启用状态、模型和实际调用主体的授权。缺失或不合格目标不阻断主员工普通聊天；不要要求用户先消除全部管理诊断才允许保存合法包。代码保存、包版本激活、员工对外更新发布是不同步骤，不能用“源码已修改”代替“平台已生效”。
 
+### 8.3 等待式澄清调用入口
+
+Output Pipeline handler 复用现有 `context.clarification`：单题使用原 `request(...)`，同一当前步骤的独立多题使用 `request_group(key=..., questions=[...], max_rounds=3)`。`max_rounds` 可省略（默认 3）或设为任意正整数，首次请求后会话冻结该值。组答案通过 `answer.answers[question_id]` 取得原 selected/text 结果；不需要注册第二套澄清器、创建新 Run 或修改通用主链。
+
+完整签名、组声明、轮次限制与副作用防重约束见本知识库“14.6 现有等待式澄清器：单题和同组多题”。恢复只复用已完成前序步骤，当前步骤允许受控重放；不能将任意写操作放在 request 之前，也不能假定回答后执行就天然防重。生成二开代码时必须明确稳定业务操作身份及未知结果处理，缺少幂等基础时说明阻塞，不绕过共享能力、解析或审批规则。
+
 ## Memory、Skill 和 MCP 配置
 
 ## 12. Memory、Capability、Plan 与治理模块
@@ -896,6 +1018,7 @@ builder.with_persona(
 | `.with_artifact_capability_asset(capability_id, required=True)` | 否 | 产物型 SDK 绑定 ID、是否必需 | 声明仅供 Output Pipeline 使用的产物型能力 | 只允许 `asset_type=artifact_capability` 且 `invocation_scope=output_pipeline` 的能力进入子编排 |
 | `.use_state_runtime(runtime_line="composable", enabled_modules=None, entry_config=None)` | 否 | 运行线、模块、入口配置 | 启用可组装运行时入口配置 | 写入 `state_machine_config.entry_config` |
 | `.use_plan(plan_template_key="", strategy="intent_family", enabled=True)` | 否 | 计划模板、策略、开关 | 声明公共 Plan 配置 | 自动调用 `use_state_runtime()`，计划元数据写入 `builder_runtime.plan` |
+| `.use_file_generation(enabled=True)` | 否 | 是否允许文件生成 | 显式开启当前外置 Agent 的 `file_generate` | 缺失或未调用时默认关闭；还受平台全局开关限制 |
 | `.use_guardrail_module()` | 否 | 无 | 启用护栏模块 | 只声明模块，执行由平台 Guardrail Runtime 托管 |
 | `.register_guardrail(slot, guardrail_key)` | 否 | 护栏插槽、护栏 key | 声明护栏插槽 | 启用 guardrail 模块；真实审批 / 中断按平台策略 |
 | `.use_governance()` | 否 | 无 | 启用治理模块 | 写入 Builder 板块与运行模块 |
@@ -903,11 +1026,32 @@ builder.with_persona(
 
 CapabilityAsset 统一表示公共能力资产。Skill、Tool、MCP、Native Capability 只是能力资产内部 `asset_type`，外置插件不直接 import 或调用底层服务。
 
+### 12.1 文件生成能力默认关闭
+
+文件生成不是普通能力中心绑定项，外置 Agent 也不会自动获得。开发者需要在 `agent_definition.py` 中显式调用：
+
+```python
+builder.use_file_generation(enabled=True)
+```
+
+省略该调用，或者没有以下字段，都表示关闭：
+
+```json
+{
+  "file_generation": {
+    "enabled": false
+  }
+}
+```
+
+平台会在工具注入、意图能力候选和计划候选三个位置统一过滤。即使包显式开启，平台全局 `FILE_GENERATION_ENABLED=false` 时仍不可用。
+因此页面 DSL、结构化 JSON、普通文本回答等不需要文件产物的 Agent 不应开启该能力。
+
 这些声明生成包内绑定，定义、权限、参数和删除在面试中只读，但技能/工具允许平台启停。包升级或回滚保留存续绑定的开关选择，移除后重加按新声明默认值。平台可在同一员工上追加独立有效的工具或能力，并单独启停和移除平台部分；工具不提供参数调整弹窗，已有参数保持原值，包升级不覆盖平台来源。相同能力 ID 只向运行时暴露一次，启用来源的权限取更严格限制；各来源独立启停，关闭一个来源不关闭另一个启用来源。平台仅绑定后由包后续引用同一 ID 时形成双来源；包移除该引用不删除原平台绑定。同名但不同 ID 仍是两项，名称不能作为身份。
 
 平台追加的工具会进入能力层可规划、可调用的集合；意图提示与固定产物管线不会因此自动新增依赖或扩大权限。已发布服务须更新员工发布后使用新的绑定，既有全局停用、主体授权和调用确认规则继续生效。
 
-### 12.1 自动候选提取是员工级设置
+### 12.2 自动候选提取是员工级设置
 
 `.use_memory()` 只声明装配平台记忆模块，并复用该员工已有的记忆绑定和 active 记忆读取能力；它不声明、也不覆盖自动候选记忆提取策略。
 
@@ -933,7 +1077,7 @@ CapabilityAsset 统一表示公共能力资产。Skill、Tool、MCP、Native Cap
 - 这是员工级运行设置，在员工详情的“开始面试”区域保存；外置开发者不要把它写入 `manifest.yaml` 或 `agent_definition.py`。
 - 外置 Bundle 的 `.use_memory()` 与入口默认配置不能替代该开关。外置 Agent 需要自动提取时，必须由员工详情显式保存 `true`；员工已保存的 `true` 或 `false` 均优先于 Bundle 默认值。
 
-### 12.2 SDK 绑定 ID 怎么找
+### 12.3 SDK 绑定 ID 怎么找
 
 用户在能力中心列表里复制 `SDK 绑定 ID`，然后填到 SDK：
 
@@ -953,7 +1097,7 @@ builder.with_capability_asset("f84aaff3-f130-4160-83ad-ec1775562f9e")
 
 代码兼容按 `capability_id`、`ref_id`、`name` 查找，但文档和脚手架统一要求用户填 `SDK 绑定 ID`。
 
-### 12.3 随包能力模板怎么写
+### 12.4 随包能力模板怎么写
 
 当插件要自己带 Skill / MCP 定义时，不用先去能力中心手动建能力。你把模板文件放进插件目录，再在 `agent_definition.py` 里用 `.with_capability_template(...)` 引用。
 
@@ -1131,9 +1275,82 @@ builder.with_capability_template("mcp:your-mcp-template/remote_tool_name", requi
 | 恢复同一路径模板 | 复用原 ID 并重新激活来源 | 原绑定可恢复使用 |
 | 转为平台自管副本 | 深复制出新的自管能力 | 新副本不再受原模板删除 / 恢复影响 |
 
+#### 12.4 能力声明、绑定、授权和启用是四件事
+
+开发者在包里声明能力，只代表“这个 Agent 可能依赖它”。真正能否调用，还要经过四层：
+
+```text
+包声明能力
+→ 解析成平台能力 / 找到 SDK 绑定 ID
+→ 员工和当前版本绑定，并通过授权
+→ 能力中心全局开关、员工级开关均允许
+→ 运行时才进入可执行工具集合
+```
+
+因此，能力中心里看得到能力、`candidate_capabilities` 里写了 ID，都不等于本次运行一定有工具。全局能力关闭时，员工级开关不能覆盖它；能力被移除、未授权或 required 模板失效时，也不能靠提示词让模型继续调用。
+
+不要把下面几种 ID 混用：
+
+| 字段 | 用途 | 能否替代其他字段 |
+|------|------|------------------|
+| `capability_id` / SDK 绑定 ID | 运行绑定和授权 | 不能用名称替代 |
+| `template_ref` | 包内 Skill / MCP 模板引用 | 不能直接当平台能力 ID |
+| MCP `remote_tool_name` | 远端 `tools/list` 返回的真实工具名 | 不是 MCP 服务展示名 |
+| `agent_key` / `plugin_key` | Agent 和插件身份 | 不是能力 ID，也不是凭据 |
+
+如果能力不是任务必需，优先使用 `required=False`；如果能力缺失时任务仍能用普通逻辑完成，不要同时写 `needs_capability=True`。
+
 ## Output Pipeline
 
 ## 14. Output Pipeline 模块
+
+### 14.0 与计划、工具循环的边界
+
+Pipeline 只提供执行事实，不负责强制或禁止外层平台工具。`needs_capability` 默认 `None`，可搭配 `candidate_capabilities`；它们是计划提示，普通 HTTP 接口调用、JSON 生成不等于平台 Skill / MCP 调用。
+
+结果非空不代表已满足计划。若某个成功步骤的实际结果确实完成了本次计划中的工具需求，handler 可在**结果信封**声明 `satisfied_plan_step_ids`，业务 `output` 不增加此字段：
+
+```python
+return {
+    "status": "completed",
+    "output": verified_result,
+    "satisfied_plan_step_ids": matched_plan_step_ids,
+}
+```
+
+`matched_plan_step_ids` 必须由 handler 核对 `step_context.root_inputs["task_plan"]["steps"]` 的实际需求后确定，只能引用本 Run 中 `step_type="tool_call"` 的 `step_id`。不要硬编码 `"s1"`，不要仅按步骤类型把全部 ID 填进去，也不要将模型随口声称的“已完成”直接采用。
+
+| 情况 | 平台行为 |
+|---|---|
+| 不填或 `[]` | 不声明满足关系；不会仅因返回 JSON 就取消工具步骤 |
+| 成功、有实际输出、ID 有效 | 仅保存声明供审计；仍由 ToolLoop 查看实际结果，不直接跳过或删改计划 |
+| 只满足部分步骤 | 将已完成事实传给后续执行，未完成工作仍需工具 |
+| ID 不存在、非工具步骤、类型错误、失败或输出为空 | 拒绝该声明，返回 `plan_step_satisfaction_invalid` |
+| 暂停后恢复 | 满足信息随前序结果进入外置检查点；恢复校验，前序操作不重放；旧检查点视为无满足声明 |
+
+这是一份由受控插件代码负责的业务满足声明，平台校验结构与执行状态，不能自动证明 HTTP 数据与任意业务目标语义等价；开发者必须先验证实际结果。声明不授予权限、不替代确认、护栏或真正必须执行的平台动作；必须执行的 Skill / MCP 应走原能力层。
+
+仍有工具义务时，Pipeline 事实以中性消息交给后续工具阶段，保留用户问题和原计划，不提前注入“禁止工具”契约。进入最终正文阶段才清理能力决策指令，正文只组织表达。
+
+澄清恢复后保留原计划，经既有受控 ToolLoop 门面查看恢复的结果，保持原 Run、用户身份和冻结能力快照；不重跑意图、规划或已完成的前序操作。旧检查点再次暂停时重新编码为新版结果信封；工具确认等待仍返回等待，工具失败不能显示为创建成功。
+
+#### 14.0.1 子编排完成后的受控零调用
+
+只有本次已经执行子编排，平台才为后续工具判断提供执行记录。外层 ToolLoop 接收此前步骤的状态与结果；内部 `agent_tool_loop` Step 自动接收它之前的所有步骤结果，独立于 `input_from`，不包含未来步骤。处理函数只放在局部变量、没有返回给平台的数据无法传递，必须通过 `output` 或有业务依据的 `summary` 返回。
+
+ToolLoop 仍查看当前任务、原计划及真实授权工具。若结果已完整满足当前工作，模型须给出内部零调用原因 `pipeline_result_sufficient` 并引用实际收到的证据；平台检查同 Run 归属、状态、输入可见性及裁剪情况后才免除零调用催补和报错。原因与证据写入执行追踪，不写业务 JSON 或正文，开发者无需手写这个内部决策信封。
+
+| 实际结果 | 后续行为 |
+|---|---|
+| 查询结果足够回答当前问题 | 可依据结果零调用并回答，实际调用数仍为 0 |
+| 查询失败、信息不足，原失败策略允许继续 | 可调用相关授权工具补查，失败记录本身不能获得豁免 |
+| 已查到信息，但还要求创建、提交或打开 | 继续调用操作工具，不能用查询代替操作 |
+| 操作成功，响应体为空 | 只有输出或摘要明确提供有业务约定依据的完成回执时才可豁免 |
+| 仅 HTTP 2xx、已受理、状态未知、无关结果或关键内容被裁剪 | 不视为完整完成，不获该豁免；未知操作不能盲目重复 |
+
+例如，接口明确约定同步成功即已打开页面，handler 可以返回 `output={"operation": "打开页面", "target": page_name, "business_status": "succeeded", "response_body": None, "completion_basis": "该同步接口回执表示页面已打开"}`。这些是业务结果示例字段，不是 SDK 新增必填字段；没有这种接口约定时不能编造依据。
+
+通用 Agent、未实际运行子编排的专项保持原严格行为；实际工具调用、权限、参数、确认及失败处理不受此例外放宽。`needs_capability`、候选或 `satisfied_plan_step_ids` 均不能单独开启豁免。预算导致关键结果遗漏、旧检查点缺少证据或模型没有给出有效理由时，继续原有催补和缺失调用错误。模型的语义判断仍可能误判，平台不保证仅凭结构校验就能证明业务完成。
 
 ### 14.1 `pipeline_step(...)`
 
@@ -1142,7 +1359,7 @@ builder.with_capability_template("mcp:your-mcp-template/remote_tool_name", requi
 | `key` | string | 是 | 无 | pipeline 内唯一 | step 稳定键 |
 | `title` | string | 否 | `key` | 无 | 展示标题 |
 | `output_type` | string | 条件必填 | 继承 pipeline | 见枚举 | step 输出类型 |
-| `output_contract` | string | 条件必填 | 空 | `text` / `markdown` / `internal` 可省略，其余不可省略 | step 输出契约 |
+| `output_contract` | string | 条件必填 | 空 | `text`、`markdown`、`internal` 可省略；`json`、`yaml`、`code`、`table`、`file_ref`、`binary_ref` 等结构化或文件型输出必须填写 | step 输出契约 |
 | `output_schema` | string | 否 | 空 | `output_contract` 兼容别名 | 等价于 `output_contract` |
 | `handler` | callable | 二选一 | 无 | 与 `capability_id` 不能同时存在 | Python step 处理函数 |
 | `capability_id` | string | 二选一 | 空 | 只能填产物型 SDK 绑定 ID | 通过产物型能力门面执行 step |
@@ -1378,7 +1595,7 @@ async def fetch_order(step_context):
 | `artifact_kind` | string | 是 | 无 | 与 `output_structured.kind` 对齐 | 产物类型 |
 | `output_type` | string | 是 | 无 | 见枚举 | pipeline 最终输出类型 |
 | `steps` | list[string] | 是 | 无 | 非空、不可重复 | 串行 step key 列表 |
-| `final_contract` | string | 否 | 空 | 结构化类型建议填写 | 最终输出契约 |
+| `final_contract` | string | 否 | 空 | 结构化产物建议填写；具体 Pipeline 校验规则以对应实现为准 | 最终输出契约 |
 | `final_schema` | string | 否 | 空 | `final_contract` 兼容别名 | 等价于 `final_contract` |
 | `failure_policy` | string | 否 | `fail_fast` | 见枚举 | 失败策略 |
 
@@ -1858,7 +2075,7 @@ def normalize_list(value, fallback):
 | `forbidden_fields` | list[string] | 否 | 平台默认旧协议字段 | 禁止模型输出的字段 | 顶层、item 顶层、slots 内递归出现都会失败或进入 repair |
 | `compiler` | callable | 是 | 无 | 处理模型 JSON IR 的函数 | 校验通过后才调用；它返回的结果才是最终 output |
 | `output_type` | string | 建议必填 | 当前 step 的 `output_type` | 最终 output 类型 | 用于事件、展示和结果归一 |
-| `output_contract` | string | 条件必填 | 当前 step 的 `output_contract` | 最终 output 契约 | 结构化 / 文件型产物建议填写 |
+| `output_contract` | string | 条件必填 | 当前 step 的 `output_contract` | `text`、`markdown`、`internal` 可省略；其他结构化或文件型产物必须填写 | 最终 output 契约 |
 | `prompt_rules` | string / list[string] | 否 | 平台基础规则 | 额外提示，比如“只输出严格 JSON” | 提高弱模型稳定性 |
 | `examples` | list | 否 | `[]` | 给模型看的正例 | 提高弱模型稳定性，不作为硬校验 |
 | `repair_enabled` | bool | 否 | `True` | 是否允许一次受控修复 | 只能修复成合法 IR，不能修成最终产物 |
@@ -1951,6 +2168,92 @@ return {
 | `context.model.generate(...)` | 自由文本、Markdown、你愿意自己解析的输出 | 你自己 | 你自己 | 你自己 |
 
 自由 `context.model.generate(...)` 仍然可以用，但你要自己处理 JSON 解析、字段校验、错误码和最终 return。小白用户优先用 Native Capability 风格。
+
+### 14.4 结果信封、机器产物和用户正文
+
+Pipeline handler 或 compiler 返回业务结果时，必须区分“平台结果信封”和“业务产物”。不要直接把业务 JSON 当作 step 返回值：
+
+```python
+# 错误：平台会把 output 视为缺失
+return {"componentName": "Page", "props": {"title": "订单"}}
+
+# 正确：业务 JSON 放进 output
+return {
+    "status": "completed",
+    "output": {
+        "componentName": "Page",
+        "props": {"title": "订单"},
+    },
+}
+```
+
+三个字段的职责不同：
+
+| 字段 | 给谁用 | 是否等于最终正文 |
+|------|--------|------------------|
+| `output` | 后续 step、产物状态和机器消费者 | 不是 |
+| `summary` | 运行状态、诊断和上下文压缩 | 不是 |
+| `display_summary` | 用户最终看到的固定正文 | 是；非空时平台跳过最终正文模型 |
+
+如果页面、工作流或配置 JSON 要被前端直接消费，不要把 `display_summary` 混入 `output`。需要同时给用户一句说明时，把它作为最终 artifact 的独立 `display_summary` 字段返回。
+
+没有 `display_summary` 时，平台会把最终 `output` 交给正文收口模型组织说明；这不保证模型完整复述每个字段。附件、澄清或子编排路径还可能有额外的正文收口，因此需要稳定机器结果时，应返回结构化 `output`，需要稳定用户文案时，应显式返回 `display_summary`。
+
+### 14.5 Step 输入不是自动合并上下文
+
+`input_from="previous_step"` 只读取上一步产物，不会自动合并所有历史 step、用户原文、意图和记忆。需要这些内容时，必须明确选择：
+
+| 目标 | 配置 |
+|------|------|
+| 读取用户原始输入 | `input_from="original_input"` 或 `run_input` |
+| 读取上一步结果 | `input_from="previous_step"` |
+| 读取指定中间结果 | `input_from="step:<step_key>"` |
+| 读取意图信息 | `input_from="intent_context"` |
+| 读取平台记忆上下文 | `input_from="memory_context"` |
+
+`input_from` 拼错不要依赖平台帮忙猜测；提交前逐个核对 step key 和枚举值。多组件页面应由前一步显式返回完整组件列表，或增加一个聚合 step，不能假设平台自动把多个 step 的 JSON 拼在一起。
+
+### 14.6 现有等待式澄清器：单题和同组多题
+
+handler 使用同一个 `context.clarification`，不自行创建 Run、中断或回答页面：
+
+| 方法 | 返回 | 适用场景 |
+|---|---|---|
+| `await context.clarification.request(key=..., question=..., options=None, allow_free_text=True, max_rounds=3)` | 原 `ClarificationAnswer`，kind 为 selected/text/cancelled | 保持现有单题代码兼容 |
+| `await context.clarification.request_group(key=..., questions=[...], max_rounds=3)` | `ClarificationGroupAnswer`，kind 为 group/cancelled；answers 按稳定题 id 取 `ClarificationAnswer` | 同一当前步骤已知、相互独立的问题统一提交；这里的 3 是默认值，不是上限 |
+
+```python
+async def collect_report_inputs(context):
+    answer = await context.clarification.request_group(
+        key="report_inputs",
+        questions=[
+            {"id": "format", "question": "请选择输出格式",
+             "options": [{"id": "html", "label": "HTML"}], "allow_free_text": True},
+            {"id": "period", "question": "统计哪个时间段？", "allow_free_text": True},
+        ],
+        max_rounds=5,
+    )
+    if answer.kind == "cancelled":
+        return {"status": "completed", "output": {"cancelled": True}}
+    return {"status": "completed", "output": {
+        "format": answer.answers["format"].selected_option_id or answer.answers["format"].text,
+        "period": answer.answers["period"].text,
+    }}
+```
+
+`request_group` 的 `max_rounds` 可省略（默认 3）或传入任意正整数；上方示例设置为 5 轮。它与单题 `request` 共用轮次配置、会话冻结和末轮禁自由文本规则。签名中的 `max_rounds=3` 只是默认参数，不是最多三轮。
+
+规则：
+
+- 单题和组题共用原 Run 的原流水线/当前步骤恢复，不新建任务、不换业务页面。卡片内切题只改草稿，整组显式提交并校验通过才继续；旧客户端不能仅交首题代替整组。
+- 每题使用稳定唯一的 id，候选沿现有单选 id/label/description；不传 slot_key。没有依据不造推荐选项，澄清器不隐式调用 selector 或模型。
+- key 在原 pipeline/step 范围内稳定；同 key 不能换题、换候选含义或在单题/组题之间切换。历史 key 回放原答案，新 key 才发起下一轮；不要用随机数、attempt 或 interrupt id 生成 key。
+- 一组只计一轮，与题目数量无关。默认 max_rounds 为 3；可配置任意正整数轮数，并在第一轮冻结；二开末轮仍禁自由文本。末轮必须有可选候选，任何题无可答方式会在创建等待前拒绝。后题依赖前答时分成下一轮，不自动聚合顺序调用，不跨步骤、兄弟任务或审批混组。
+- 问题/答案受原快照大小限制；超限拒绝，不静默截断题目或有效组答案。明确取消使 Run 终态时，平台不会为了返回 cancelled 对象复活 handler。
+
+恢复时，已完成前序步骤从原外置检查点读取；缺失则失败关闭，不能从流水线首步重跑。**当前 handler 会从步骤开头再次进入，不是保留 Python 调用栈。** request/request_group 之前只放纯计算或安全读取；已完成且不能重复的模型、能力或解析工作放前序步骤并消费其结果。
+
+写库、创建资源、发消息等应在所需澄清之后；后面仍可能追问时拆成有检查点的步骤，或复用业务服务的稳定操作键与参数校验。即使在回答之后执行，仍可能发生“外部成功、本地未记完成就退出”，所以需要外部服务支持幂等/唯一约束和查询原操作。操作键不能随澄清轮次、interrupt 或恢复 attempt 改变；同键参数变化必须拒绝或明确核对。未知结果先查原操作，无法核实就阻断，不能重新 POST 碰运气。`context.http` 不会自动为任意第三方写操作提供恰好一次保证；不要由二开代码 import 平台数据库、执行服务或修改共享运行时来补防重。已有授权/审批规则继续独立生效。
 
 ## 附件解析器
 
@@ -2203,6 +2506,10 @@ intent.output_policy
 
 `text_only` 不得携带 `pipeline_key`。artifact policy 必须指向已注册 `OutputPipeline`，且 `artifact_kind`、`output_type` 与 pipeline 一致。
 
+同一个 intent 只能声明一个非 `text_only` 的策略来源。`intent.output_policy`、`family.output_policy[intent_key]`、`family.default_output_policy`、`base_family` 只允许选择一处提供 Pipeline key；重复声明会在注册 / 上传阶段返回 `output_policy_conflict`。当前 SDK 的 `builder.intent()` 默认生成 `text_only`，结构化产物建议直接在每个目标 intent 上写 `output_policy`，并删除 family 层对同一 intent 的重复配置。
+
+上传前还要验证 ZIP 文件名：非 ASCII 文件名必须带 UTF-8 标志。建议使用 Python 标准库 `zipfile` 或明确支持 UTF-8 文件名的工具打包，并用 `python -m zipfile -l your-agent.zip` 检查；中文文件名出现乱码时，服务器会把它当成缺失依赖。
+
 Pipeline Step handler 只能接收 `PipelineStepContext` 受控上下文；上下文可包含 run / agent 身份、intent_context、只读 memory、能力快照、输入、previous step、平台模型门面、产物型能力门面、`http` 受控 HTTP 门面、artifact_store、diagnostics 与 pipeline 事件出口，不得暴露 DB session、底层 service、ToolExecutor、MCP client 或 provider client。
 
 ## 外置脚手架运行编排
@@ -2327,7 +2634,6 @@ def register_agent(context: Any) -> None:
             ],
             risk_level="normal",
         ),
-        output_policy="text_only",
     )
 
     document_risk_intent = builder.intent(
@@ -2362,7 +2668,6 @@ def register_agent(context: Any) -> None:
             ],
             risk_level="medium",
         ),
-        output_policy="text_only",
     )
 
     document_family = builder.intent_family(
@@ -2391,9 +2696,10 @@ def register_agent(context: Any) -> None:
 
 - 文档总结 / 风险审查会优先命中 `document_analysis`。
 - 其他普通问题仍由公共意图兜底。
-- `needs_capability=None` 表示能力只是可选增强；Plan 会结合上下文决定是否使用，不会因为该字段强制调用。
+- `needs_capability=None` 是推荐默认值；Plan 结合本次任务、上下文及实际工具决定，可与候选搭配，不强制调用。
 - `.with_capability_asset(..., required=False)` 表示能力缺失不阻断插件；它和 `needs_capability` 是两个独立开关。
-- 如果能力必须存在，把 `required=False` 改为 `required=True`，并把两个 `planner_hint` 中的 `needs_capability` 改为 `True`；同时必须保留有效的 `candidate_capabilities`。
+- 如果能力必须存在，把 `required=False` 改为 `required=True`；`needs_capability` 仍可保留 `None`。只有整个意图通常必须借助平台能力时才考虑 `True`，候选始终是可选推荐。
 - 如果完全不需要外部能力，则删除 `.with_capability_asset(...)`，并把两个 `planner_hint` 改为 `needs_capability=False`、`candidate_capabilities=[]`。
+- 本示例为普通文本输出，没有运行子编排，不启用子编排零调用例外。后续增加 Output Pipeline 时，须返回真实查询结果或有依据的操作回执；平台自动交接前序结果，ToolLoop 只有引用充分证据才可免调，不靠 `needs_capability` 或手写满足 ID 放行。
 
-文档内容来源版本：builder-runtime-knowledge-1.3.3
+文档内容来源版本：builder-runtime-knowledge-1.3.5

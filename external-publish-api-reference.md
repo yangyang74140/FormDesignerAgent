@@ -1549,6 +1549,10 @@ curl -G "$BASE_URL/openapi/v1/services/svc_xxx/conversations" \
 | `items[].created_at` | `string` | 否 | 北京时间 ISO 8601 时间，包含 +08:00 时区。 |
 | `items[].content_parts` | `array` | 否 | 持久化文本/附件片段，按 sort_order 排列；旧消息可能为空，使用 content 展示。 |
 | `items[].content_parts[].attachment` | `object \| null` | 否 | 同消息、未删除附件的 attachment_id、message_id、file_name、mime_type、size_bytes；不可用时为 null，不包含下载链接。 |
+| `items[].blocks` | `array` | 否 | 助手消息的用户可见过程块，复用面试/工作空间历史投影；包含 reasoning、status、tool、page_output、result、citation、followup_suggestions 等类型，顺序与聊天展示一致。没有关联 Run 或没有过程块时为空或省略。 |
+| `items[].tool_calls` | `array` | 否 | blocks 中 type=tool 的兼容投影，含工具/技能名称、状态、摘要及聊天展示所需参数与结果。 |
+| `items[].reasoning_content` | `string` | 否 | 从共享可见 reasoning 块汇总的思考内容；没有可见思考块时省略。 |
+| `items[].citations / specialized_state / reply_token_usage` | `array / object / object \| null` | 否 | 分别为引用来源、专项展示状态和低敏回复用量；无对应数据时返回空数组、缺省值或 null。 |
 | `items[].answered_clarifications` | `array` | 否 | 助手消息对应 Run 的已完成澄清记录；包含澄清问题、冻结选项、用户实际回答和回答时间。每个 Run 最多返回最近 50 组；仅用于历史回看，不提供恢复操作。 |
 | `total` | `integer` | 否 | 过滤后的消息总数；不含 system/tool 和 retried 消息。 |
 | `page / size` | `integer` | 否 | 当前页码和每页数量。 |
@@ -1571,7 +1575,8 @@ curl -G "$BASE_URL/openapi/v1/conversations/conv_xxx/messages" \
 - 按租户、组织或部门查询需要调用时已保存可信主体信息；未保存这些维度的旧记录不能推断归属，带维度查询不会返回。
 - 接口只读，不补写或修复历史归属；返回统一信封，下面列出的是 data 内字段。
 - 即使已知 conversation_id，也要传当前用户身份；后端会重新校验调用应用、服务授权及会话归属。不存在、已删除或无权访问统一返回 404 RESOURCE_NOT_FOUND_OR_FORBIDDEN。
-- 不返回系统提示词、工具消息、内部思考、工具参数、原始运行事件或存储路径；本接口用于聊天回放，实时进度仍使用 Run stream/events。
+- 助手历史复用面试/工作空间的用户可见过程块投影，可能包含思考、工具/技能调用、计划/子编排、页面/流水线输出和产物卡片；不会返回 system 消息、原始 RunEvent、对象存储路径或下载凭证。实时进度仍使用 Run stream/events。
+- 过程数据仅从同一会话、应用和服务的 Run 读取；Run 缺失或关联不符时保留正文，不回放对应过程、澄清、引用或用量。
 - answered_clarifications 用于回看澄清过程：单题包含 question/options/answer，问题组包含 group.questions 及每题 options；不进入模型历史，也不能通过历史接口提交或修改回答。
 - 正在生成的 assistant 消息可能尚未完成，status 和 content 以本次查询时的数据库状态为准。
 
@@ -1709,9 +1714,9 @@ curl -X POST "$BASE_URL/openapi/v1/runs/run_xxx/cancel" \
 | --- | --- | --- | --- |
 | `run_id` | `path string` | 是 | 等待处理的运行标识。 |
 | `interrupt_id` | `path string` | 是 | 中断标识，由等待事件返回。 |
-| `action` | `string` | 是 | 处理动作，例如 approve、reject、answer、retry、cancel、continue。 |
-| `payload` | `object` | 否 | 动作附加参数，例如用户补充答案、拒绝原因或确认信息。 |
-| `idempotency_key` | `string` | 否 | 幂等键，防止重复提交同一个处理结果。 |
+| `action` | `string` | 是 | 必须是本次 interrupt.waiting 返回的 actions 之一；动作需匹配中断类型。 |
+| `payload` | `object` | 否 | 按 action 和中断类型提交；answer 的单题/问题组格式及其他动作格式见下方场景示例。 |
+| `idempotency_key` | `string` | 是 | 本次提交的稳定幂等键；结果未知时用相同键和相同请求核对/重试。 |
 | `user_id` | `string` | 是 | 外部人维度主键，标准口径下的主体隔离键。 |
 
 ### 响应字段 / 事件字段
@@ -1733,17 +1738,174 @@ curl -X POST "$BASE_URL/openapi/v1/runs/run_xxx/interrupts/int_xxx/resolve" \
   -d '{
     "action": "approve",
     "payload": {"reason": "允许本次工具调用"},
-    "idempotency_key": "approve-run_xxx-int_xxx",
+    "idempotency_key": "resolve-run_xxx-int_xxx-001",
     "user_id": "user_001"
   }'
 ```
 
 ### 调用规则与限制
 
+- 下方 curl 是工具授权 approve 的调用示例，仅在当前 actions 包含 approve 时可用；其他动作请使用后续对应场景中的请求体。
+- 先读取 interrupt.waiting 的 interrupt_id、type、actions、payload.clarification；只提交 actions 列出的动作。group.key、questions[].id、options[].id、current_round 和 input_enabled 均以这条等待事件的冻结数据为准。
+- 常见动作对应关系：tool_permission/human_review 使用 approve 或 reject；budget_confirmation 使用 approve 或 reject；clarification 使用 answer 或 cancel；retry_decision 使用 retry 或 cancel；external_callback 使用 continue 或 cancel。最终以当前中断的 actions 数组为准。
+- payload 结构由 action 和 interrupt.type 决定，没有适用于所有情况的通用固定格式。旧 user_input/answer 单题载荷仍兼容；新接入优先按下方对应场景提交。
+- 每次新提交使用新的 idempotency_key；请求超时、断流或结果未知时，必须用原幂等键和完全相同的请求核对/重试，不能换键重复恢复。
+- 单题/问题组字段来源、完整请求体以及工具授权、审核、预算、回调、重试和取消示例见“按中断场景提交”。
 - resolve 只提交决策，不在同一个响应里继续吐 SSE。
 - 后续事件继续从 run stream 或 events 接口读取。
 - 旧 tool-calls confirm 接口已废弃，不应作为新 SDK 入口。
 - user_id 是外部调用的主体隔离键，不是工作空间内部登录用户。
+
+### 按中断场景提交
+
+#### 工具授权或一般人工确认
+
+仅当 interrupt.actions 包含 approve 时使用。payload.reason 可省略。拒绝请使用下一个示例中的 reject。
+
+```json
+{
+  "action": "approve",
+  "payload": { "reason": "允许本次工具调用" },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
+#### 拒绝工具授权或一般人工确认
+
+仅当 interrupt.actions 包含 reject 时使用。payload.reason 可省略，建议填写拒绝原因。最终状态由对应中断策略决定。
+
+```json
+{
+  "action": "reject",
+  "payload": { "reason": "不同意本次操作" },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
+#### 预算确认
+
+action 使用 approve/reject。需要提交预算确认数据时放在 payload.budget_payload；内部字段由本次预算流程定义，不能从通用 resolve 文档推断。
+
+```json
+{
+  "action": "approve",
+  "payload": {
+    "reason": "已确认预算",
+    "budget_payload": { "<预算流程字段>": "<确认值>" }
+  },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
+#### 管理员审核
+
+action 使用 approve/reject。审核流程要求提交审核数据时放在 payload.review_payload；内部字段由本次审核流程定义。
+
+```json
+{
+  "action": "approve",
+  "payload": {
+    "reason": "审核通过",
+    "review_payload": { "<审核流程字段>": "<审核值>" }
+  },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
+#### 澄清单题：选择候选项
+
+当 interrupt.payload.clarification.group 不存在时按单题提交。selected_option_id 取 interrupt.payload.clarification.options[].id，round 取 current_round；不要提交 selected_option 或候选 value。
+
+```json
+{
+  "action": "answer",
+  "payload": {
+    "kind": "selected",
+    "selected_option_id": "<clarification.options[].id>",
+    "round": 1
+  },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
+#### 澄清单题：填写文本
+
+仅当当前澄清允许文本输入时提交。round 取 interrupt.payload.clarification.current_round，text 必须非空。
+
+```json
+{
+  "action": "answer",
+  "payload": { "kind": "text", "text": "销售订单", "round": 1 },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
+#### 澄清问题组：一次提交整组答案
+
+group_key 取 interrupt.payload.clarification.group.key；question_id 取 group.questions[].id，answers 必须是数组且不重不漏地覆盖本组全部题目。单选的 selected_option_id 取该题 options[].id；文本题仅在 input_enabled=true 时提交 text。round 取 current_round；不要提交 selected_option。
+
+```json
+{
+  "action": "answer",
+  "payload": {
+    "kind": "group",
+    "group_key": "<clarification.group.key>",
+    "round": 1,
+    "answers": [
+      { "question_id": "<group.questions[0].id>", "kind": "selected", "selected_option_id": "<该题 options[].id>" },
+      { "question_id": "<group.questions[1].id>", "kind": "text", "text": "用户填写的内容" }
+    ]
+  },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
+#### 外部回调：继续运行
+
+仅当 interrupt.actions 包含 continue 时使用。callback_payload 必须符合该外部回调流程约定的结果结构；resolve 接口不定义其内部字段，不能用空对象代替实际结果。
+
+```json
+{
+  "action": "continue",
+  "payload": { "callback_payload": { "<回调契约字段>": "<回调结果>" } },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
+#### 重试
+
+仅当 interrupt.actions 包含 retry 时使用。payload.reason 可省略；按当前中断恢复策略重试。
+
+```json
+{
+  "action": "retry",
+  "payload": { "reason": "请求重试" },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
+#### 取消
+
+仅当 interrupt.actions 包含 cancel 时使用。取消当前等待/运行，不是提交澄清答案。
+
+```json
+{
+  "action": "cancel",
+  "payload": { "reason": "用户取消" },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
 
 ## GET /openapi/v1/services/{service_id}/artifacts/{artifact_id}
 
