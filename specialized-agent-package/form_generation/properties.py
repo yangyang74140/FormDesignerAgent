@@ -28,6 +28,7 @@ from typing import Any, Mapping
 
 from .host import CapabilityUnavailable, require_component
 from .drafts import set_action_draft
+from .contracts import CHANGE_CONTRACT, CHANGE_KIND, CHANGE_VERSION, change_enabled
 from .components import PROPERTY_COMPONENTS, get_component_rules, property_names
 from .components.common import ACCESS as _ACCESS, ACCESS_DEFAULTS as _ACCESS_DEFAULTS, ALIASES as _ALIASES, STORAGE as _STORAGE
 from .components.validation import Rejected as _Rejected, reject as _reject, validate_schema as _schema
@@ -133,6 +134,8 @@ def _definition(node: dict[str, Any], prop: str, caps: Mapping[str, Any]) -> dic
 
 
 def _version(context: Mapping[str, Any], action: str) -> None:
+    if action == "form.apply_property_change" and change_enabled(context):
+        return
     versions = context.get("supportedActionVersions", {}).get(action)
     if versions is None:
         declarations = context.get("capabilities", {}).get("actions", {})
@@ -345,6 +348,8 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
         if not isinstance(context, dict) or not isinstance(items, list) or not _json_safe(items) or not _json_safe(context):
             _reject("INVALID_INPUT", "属性请求或宿主上下文不是有限 JSON 数据。")
         context = deepcopy(context)
+        if any(isinstance(item, dict) and item.get("capability") in {"form.property.rule", "form.property.linkage"} for item in items):
+            context.get("capabilities", {}).pop("supportedProposalContracts", None)
         begins = [i for i in items if isinstance(i, dict) and i.get("capability") == "proposal.begin"]
         if len(begins) != 1 or not isinstance(begins[0].get("slots"), dict):
             _reject("INVALID_IR", "必须有一个 proposal.begin。")
@@ -537,6 +542,9 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
             return proposal
         set_action_draft(proposal, actions, mode="append", action_version=PROPERTY_ACTION_VERSION,
                          kind="shared.component-property-checklist", title=begin.get("title", "组件属性修改建议"))
+        if change_enabled(context) and all(action["action"] == "form.apply_property_change" for action in actions):
+            proposal.update(contractVersion=CHANGE_CONTRACT, actionVersion=CHANGE_VERSION)
+            proposal["presentation"]["kind"] = CHANGE_KIND
         proposal["status"] = "ready"
         return proposal
     except _Rejected as error:

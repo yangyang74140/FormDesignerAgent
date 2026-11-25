@@ -10,6 +10,16 @@
 
 组件目录缺失、空可写属性、未知属性或处理器缺失必须明确拒绝，summary/diagnostics 说明原因，不交付部分动作。例如未声明禁用语义时说明“姓名可使用 Input，但暂时还不支持禁用”，不得猜 disabled/readOnly 或用权限配置替代，也不能忽略用户要求后返回 ready。真实模型的语义识别与平台事件透传仍需验收。
 
+## 2026-11-25 PC 双确认接入补充
+
+本节优先于历史 kind 和版本描述。能力协商后的新建输出 `form_agent_proposal.v1` / `1.0` / `replace_empty_form` / `shared.form-create-confirm`，只接受纯新增。已有表单变更输出 `form_change_proposal.v1` / `form_change_actions.v1` / `append` / `shared.form-change-confirm`，支持既有字段动作和 form.apply_property_change；属性动作只定位已有节点。新节点属性由合法新增 props 表达。
+
+宿主 context 提供 `capabilities.supportedProposalContracts:["form_change_proposal.v1"]`、`capabilities.supportedPresentationKinds:["shared.form-create-confirm","shared.form-change-confirm"]`、`capabilities.supportedActionVersions:["form_change_actions.v1"]`（该键缺省才兼容 context 顶层同名声明；显式空值不回退，顶层可另外保留原字段 1.0 等版本）。变更需三项同时授权，新建只协商展示 kind 并复验新增 1.0。缺少新能力沿用旧纯路径与旧注册组件，混合拒绝。target.schemaId/baseRevision 必需，formId 适用时保留；仅含属性时要求 catalogVersion。query/undo/属性 rule/linkage 继续走原专用路径。
+
+UI 按同一节点聚合多个 actionId，分组按需显示；编辑、选择和删除建议始终作用于唯一 actions 草稿，展示次序不改变执行次序。一次提交 `{proposal}`，独立 applyRequestId，一次原子应用和撤销帧；不能拆成两次 bridge.apply。SDK/宿主需要识别新增契约与版本并对完整批次复验，Agent 本地测试不代表外仓已接通。
+
+Agent 保守拒绝同节点生命周期与其他修改重叠、重复语义属性、不可证明安全的跨字段交叉，以及字段定义 IR 与原始结构动作的位置交叉；完整限制见[动作规范](../specialized-agent-package/specs/actions.md)。真实编译样例：[混合提案](./form-change-proposal.example.json)、[对应上下文](./form-change-context.example.json)、[对应 IR](./form-change-ir.example.json)、[新建提案](./form-create-proposal.example.json)。旧 property-proposal.example.json 保留作旧能力纯属性样例；不解析更早 result 嵌套结构。
+
 ## 1. 目标和范围
 
 让用户用自然语言查询或调整组件配置，由 Agent 生成可勾选的属性建议卡片，用户选择后，设计器将对应修改事务性应用到画布 Schema。

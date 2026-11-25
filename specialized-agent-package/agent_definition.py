@@ -18,6 +18,7 @@ from .form_generation.proposal import (
     normalize_host_context,
     proposal_capabilities,
 )
+from .form_generation.contracts import change_enabled
 
 def _step_result(result: Any) -> Any:
     if isinstance(result, Mapping):
@@ -66,7 +67,7 @@ def compile_platform_proposal(ir_payload: Any, context: Any) -> dict[str, Any]:
             and str(item["slots"].get("result_kind", "")).startswith("property_")
             for item in items
         )
-        required_context = ("currentSchema", "capabilities") if property_request else (
+        required_context = ("currentSchema", "capabilities") if property_request or change_enabled(host) else (
             "currentSchema", "capabilities", "supportedActionVersions"
         )
         missing = [key for key in required_context if not host.get(key)]
@@ -137,6 +138,8 @@ async def generate_form_proposal(step_context: Any) -> Any:
             "根对象除 plan_items 外不得包含其他字段；不要把 capability、slots、summary、status、fields、actions、presentation、result 或 form_proposal 直接放在根对象。",
             "每个 capability 项目必须同时包含 capability 字符串和 slots 对象，不得省略 slots。",
             "每次必须且只能包含一个 proposal.* 状态项目。",
+            "宿主 capabilities.supportedProposalContracts 包含 form_change_proposal.v1、supportedPresentationKinds 包含 shared.form-change-confirm 且 capabilities.supportedActionVersions（缺省时读取 context 顶层同名声明）包含 form_change_actions.v1 时，已有表单的混合修改使用 result_kind=form_changes、mode=append；按用户请求顺序交错 form.field.define、既有 form.* 字段动作和 form.property.change。纯新增或纯属性也会编译为统一变更契约。",
+            "未协商统一变更能力时只能使用原有纯路径；混合请求必须明确 unsupported，不能拆批或忽略部分需求。统一变更仅对既有节点使用属性动作；新字段属性只放在已授权的新增 props 中，字段 IR 仍仅支持已声明槽位。查询、撤销、属性 rule/linkage 维持专用路径。",
             "新建完整表单必须使用 plan_items：第一项是 proposal.begin，result_kind=form_fields、mode=replace_empty_form；后续为全部字段各一条 form.field.define。",
             "已有画布只新增字段时，第一项为 proposal.begin，result_kind=form_fields、mode=append；后续仅定义新增的 form.field.define，不重生成已有字段。",
             "append 默认插入 currentSchema.fields 中最后一个 componentCategory=field（缺省视为 field）的组件之后；不指定位置时省略 target。",

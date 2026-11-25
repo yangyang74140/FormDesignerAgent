@@ -60,6 +60,12 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 
 例如“生成一个禁用的姓名字段”：姓名可用 `Input`，但没有明确注册的禁用语义及写入规则时，返回“姓名字段可使用 Input，但暂时还不支持禁用，当前没有已声明的禁用属性及写入规则”。不能猜 `disabled/readOnly/edit=false/access` 或用禁止手工编辑替代，也不能忽略禁用后交付 ready。此语义选择通过提示规则和示例约束；确定性校验拦截实际 IR 中的未知属性，真实模型能否完整保留用户要求仍需平台验收。
 
+## PC 双确认（2026-11-25）
+
+本节优先于下文历史 kind/版本说明。新建经 supportedPresentationKinds 协商后使用 `shared.form-create-confirm`，保持 `form_agent_proposal.v1`、动作版本 `1.0` 和 `replace_empty_form`，只含 add。已有表单经三项能力协商后统一使用 `form_change_proposal.v1` / `form_change_actions.v1` / `append` / `shared.form-change-confirm`，支持字段动作与既有节点的属性 change 单项或混合；纯 append、纯属性也升级。未协商保留原纯路径，混合明确拒绝。
+
+混合输入为 `proposal.begin.result_kind=form_changes`（位于 slots），保持 IR 项目和输出 actions 的相对顺序；不改动作 payload、前置条件和依赖。目标必须含 schemaId/baseRevision，属性还需 catalogVersion。新节点属性由已授权新增 props 表达。聚合与分组由 UI 投影，不增加第二份执行数据。查询、撤销、属性 rule/linkage 保持独立。完整协商字段、保守冲突限制和真实编译 JSON 见[动作规范](./specs/actions.md#2026-11-25-pc-双确认与统一变更)。旧组件兼容仅指原单一 actions 契约及注册组件，不恢复历史 result 格式。
+
 ## 输出协议
 
 逻辑最终 output 固定为 `{form_proposal: proposal}`，只含一份完整提案，不另包 component 或复制 props.proposal。保留 `protocol=form-agent.v1` 与既有 contractVersion；字段/通用提案为 `form_agent_proposal.v1`，属性修改为 `form_property_proposal.v1`，查询为 `form_property_query.v1`。状态为 ready、needs_clarification、unsupported 或 no_change；非 ready 不带执行动作或可应用确认卡。

@@ -1,0 +1,388 @@
+{
+  "target": {
+    "schemaId": "form",
+    "revision": "r1"
+  },
+  "canvas": {
+    "layoutMode": "flow",
+    "device": "pc"
+  },
+  "currentSchema": {
+    "fields": [
+      {
+        "id": "a",
+        "componentName": "Input",
+        "props": {
+          "label": "说明",
+          "name": "note",
+          "identifiers": {
+            "name": "note"
+          },
+          "placeholder": "旧",
+          "size": "medium",
+          "defaultValueConfig": "undefined",
+          "access": {
+            "required": false,
+            "visible": false,
+            "editable": false,
+            "forbidManualInput": false
+          }
+        }
+      },
+      {
+        "id": "b",
+        "componentName": "Input",
+        "props": {
+          "label": "待删",
+          "name": "old"
+        }
+      }
+    ],
+    "props": {
+      "textAlign": "right"
+    }
+  },
+  "selection": {
+    "nodeId": "a"
+  },
+  "capabilities": {
+    "catalogVersion": "properties.v1",
+    "components": {
+      "Input": {
+        "properties": {
+          "titleAlign": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "requiredMessage": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "titlePosition": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "customTitle": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "enableQuickCopy": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "disableManualEdit": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "edit": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "description": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "relatedField": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "allowClear": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "formatMessage": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "defaultValue": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "textLengthLimit": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "showLimitHint": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "required": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "formatValidation": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "size": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "titleHidden": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "enableLinkParser": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "label": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "enableCustomTitle": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "descriptionDisplay": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "format": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "uniqueMessage": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "display": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "readOnlyDisplay": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "placeholder": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "isUnique": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          },
+          "textMaxLength": {
+            "operations": [
+              "set",
+              "clear",
+              "unset",
+              "reset",
+              "copy",
+              "query"
+            ]
+          }
+        },
+        "writableProps": [
+          "name",
+          "label",
+          "placeholder",
+          "required"
+        ]
+      }
+    },
+    "supportedProposalContracts": [
+      "form_change_proposal.v1"
+    ],
+    "supportedPresentationKinds": [
+      "shared.form-create-confirm",
+      "shared.form-change-confirm"
+    ],
+    "actions": [
+      "form.add_component",
+      "form.update_component",
+      "form.update_component_options",
+      "form.move_component",
+      "form.remove_component",
+      "form.convert_component",
+      "form.update_form_config",
+      "form.set_validation",
+      "form.upsert_linkage",
+      "form.set_formula"
+    ],
+    "supportedActionVersions": [
+      "form_change_actions.v1"
+    ]
+  },
+  "nodePolicies": {
+    "a": {
+      "system": false,
+      "saved": false,
+      "disabledName": false,
+      "writable": true
+    }
+  },
+  "supportedActionVersions": [
+    "1.0",
+    "form_actions.v2"
+  ],
+  "requestId": "request-pc-mixed-example"
+}

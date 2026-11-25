@@ -14,6 +14,21 @@ class PropertyIntegrationTests(IsolatedAsyncioTestCase):
     def setUpClass(cls):
         test_output_preview.OutputPreviewTests.setUpClass.__func__(cls)
 
+    def test_nested_change_versions_work_through_platform_adapter(self):
+        from test_change_contract import context, add, remove
+        from test_properties import change
+        ctx = context()
+        ctx["capabilities"]["supportedActionVersions"] = ["form_change_actions.v1"]
+        ctx.pop("supportedActionVersions")
+        ir = {"plan_items": [{"capability": "proposal.begin", "slots": {
+            "result_kind": "form_changes", "mode": "append", "summary": "混合变更",
+        }}, add(), change(), remove()]}
+        result = self.agent.compile_platform_proposal(ir, ctx)
+        self.assertEqual(result["status"], "completed", result)
+        proposal = result["output"]["form_proposal"]
+        self.assertEqual(proposal["status"], "ready", proposal)
+        self.assertEqual(proposal["contractVersion"], "form_change_proposal.v1")
+
     def context(self):
         return {
             "requestId": "request-properties",

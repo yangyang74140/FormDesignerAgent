@@ -1,0 +1,43 @@
+{
+  "protocol": "form-agent.v1",
+  "contractVersion": "form_agent_proposal.v1",
+  "schemaVersion": "1.0.0",
+  "status": "ready",
+  "proposalId": "proposal-e27403572b4f0284",
+  "target": {
+    "schemaId": "form",
+    "baseRevision": "r1"
+  },
+  "summary": "新增备注、修改提示并删除旧字段",
+  "diagnostics": [],
+  "requestId": "request-pc-mixed-example",
+  "mode": "replace_empty_form",
+  "actionVersion": "1.0",
+  "actions": [
+    {
+      "actionId": "add-field-001",
+      "action": "form.add_component",
+      "payload": {
+        "clientRef": "employee-name",
+        "componentName": "Input",
+        "props": {
+          "label": "姓名",
+          "name": "employee_name",
+          "required": false
+        },
+        "target": {
+          "kind": "root",
+          "index": 0
+        }
+      },
+      "dependsOn": [],
+      "display": {
+        "selectedByDefault": true
+      }
+    }
+  ],
+  "presentation": {
+    "kind": "shared.form-create-confirm",
+    "title": "表单变更"
+  }
+}

@@ -73,6 +73,14 @@ Agent 依据宿主真实上下文生成建议；ai-chat 展示并维护用户确
 - 生成时校验不授权用户编辑后的草稿。宿主仍须复验固定目标、revision、能力、before、依赖、引用、顺序与最终候选状态，原子应用并执行独立 Apply 幂等、撤销和保存分离。
 - 尚未正式使用，不兼容旧输出、不维护双格式解析或迁移，不因这次结构调整新增 v1/v2 分流或 FormSchema 版本门禁；真实平台事件名和最终 output 通道保持不变。
 
+### 2026-11-25 PC 双确认补充契约
+
+本节优先于上文普通确认 kind 和“不新增版本”的历史描述。已协商的新建使用 `form_agent_proposal.v1` / `1.0`、`replace_empty_form`、`shared.form-create-confirm`，仅纯新增。已有表单变更使用 `form_change_proposal.v1` / `form_change_actions.v1`、`append`、`shared.form-change-confirm`，actions 仍是唯一草稿，不改变动作 payload、before、dependsOn 或 display。
+
+统一变更需同时声明 `capabilities.supportedProposalContracts` 包含新契约、`capabilities.supportedPresentationKinds` 包含新 kind、`capabilities.supportedActionVersions` 包含新动作版本（该键缺省才回退 context 顶层同名声明，显式空值不回退）；新建 kind 单独通过 supportedPresentationKinds 协商，新增动作仍需 1.0 授权。无新能力时保留原有纯路径及旧注册组件；这不恢复旧 result 嵌套结构兼容。混合能力缺失时明确 unsupported。查询、撤销及属性 rule/linkage 保留专用路径。
+
+新 IR `result_kind=form_changes` 支持既有字段动作及 `form.property.change`，保留动作相对顺序。统一变更要求 schemaId/baseRevision，formId 适用时保留，含属性才要求 catalogVersion；属性仅定位既有节点，新节点属性在已授权新增 props 中表达。同字段聚合和分组仅是 UI 投影，不复制执行清单或重排动作。不能证明安全的重叠整批拒绝，规则与样例见包内动作规范和三端接入说明。
+
 ## 6. 按任务阅读与验证
 
 - 平台或 SDK 接入：本文件 → 第三方开发指南对应章节 → 平台接口参考对应接口。

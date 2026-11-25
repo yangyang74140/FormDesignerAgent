@@ -2,6 +2,24 @@
 
 这是本次实施的单一动作契约。这些是表单动作，不复用页面动作的 payload 或执行器。2026-11-23 用户指定的本地设计器已接入 PC Flow 既有属性处理器的解析、复验和原子应用；不能以 Agent ready 推断其他动作可执行，也不能据此宣称已部署。
 
+## 2026-11-25 PC 双确认与统一变更
+
+本节覆盖下文历史普通确认 kind 和版本描述；动作本体语义保持不变。
+
+| 场景 | contractVersion | actionVersion | mode | presentation.kind |
+| --- | --- | --- | --- | --- |
+| 已协商新建 | form_agent_proposal.v1 | 1.0 | replace_empty_form | shared.form-create-confirm |
+| 已协商已有表单变更 | form_change_proposal.v1 | form_change_actions.v1 | append | shared.form-change-confirm |
+| 未协商纯路径 | 原字段或属性契约 | 原动作协商值 | 原模式 | 原注册组件 |
+
+新建只包含 form.add_component；需 capabilities.supportedPresentationKinds 声明新建 kind，且新增动作实际授权 1.0。统一变更需 capabilities.supportedProposalContracts 包含 form_change_proposal.v1、capabilities.supportedPresentationKinds 包含 shared.form-change-confirm、capabilities.supportedActionVersions 包含 form_change_actions.v1（全局字符串、列表或布尔版本表；该键缺省才兼容 context 顶层同名声明，显式空值不回退）。统一版本不借用其他动作的旧版本，但字段动作仍需在宿主动作目录授权。无新能力保留旧纯路径；混合返回 unsupported/CHANGE_CONTRACT_UNSUPPORTED。
+
+`proposal.begin.slots.result_kind=form_changes` 可按原顺序交错字段定义 IR、通用动作注册表全集以及 form.property.change。纯字段 append、纯通用动作、纯属性 change 在新能力开启时也输出统一变更。form.property.rule/linkage、query 和 undo 不属于此契约，维持专用路径。修改协议要求固定 target.schemaId/baseRevision；formId/appId/layoutId 适用时保留。含属性才要求 catalogVersion、节点策略与真实属性处理器。新节点属性仅通过已支持新增 props 表达，属性 change 不接受本批 clientRef。
+
+同一节点多个属性操作复用完整属性候选校验，重复语义属性整批拒绝。删除与修改、转换与修改、原始 update 与属性操作等同节点重叠保守返回 CHANGE_OVERLAP；表单级或无法定位目标的跨字段动作和其他动作同批也保守拒绝。各类动作独立使用仍可通过授权。字段 IR 与原始 add/remove/move/convert 同批的位置影响无法证明安全，返回 CHANGE_POSITION_OVERLAP；可改用明确位置的原始新增动作。不能分别应用两批代替原子提交。
+
+单一 actions、actionId、dependsOn、display、属性 preconditions.before 和 payload 保持原结构。UI 同字段聚合和按需分组仅是投影，不能重排 actions；依赖缺选、复杂位置子集仍按下文规则阻止。编辑后真实宿主必须复验整批最终候选。真实编译样例见 [统一变更](../../doc/form-change-proposal.example.json) 与 [新建](../../doc/form-create-proposal.example.json)，对应输入见同目录 form-change-context.example.json / form-change-ir.example.json。
+
 ## 层次与共同前置条件
 
 模型输入保持 `plan_items[].capability/slots`。每批只有一个 `proposal.*` 状态；`form.field.define` 是字段定义 IR，由编译器生成新增动作，本身不是宿主执行动作。最终 output 固定为 `{form_proposal: proposal}`，保留既有 protocol/contractVersion；修改提案的 `mode/actionVersion/actions` 均在 proposal 顶层，不含 result、validation 或重复字段/变更清单。`schemaVersion` 仅是可选画布元数据，不作能力门禁。
