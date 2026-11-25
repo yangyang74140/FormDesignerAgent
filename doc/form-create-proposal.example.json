@@ -3,12 +3,12 @@
   "contractVersion": "form_agent_proposal.v1",
   "schemaVersion": "1.0.0",
   "status": "ready",
-  "proposalId": "proposal-e27403572b4f0284",
+  "proposalId": "proposal-988751471de13a43",
   "target": {
     "schemaId": "form",
     "baseRevision": "r1"
   },
-  "summary": "新增备注、修改提示并删除旧字段",
+  "summary": "新建姓名字段",
   "diagnostics": [],
   "requestId": "request-pc-mixed-example",
   "mode": "replace_empty_form",
@@ -38,6 +38,6 @@
   ],
   "presentation": {
     "kind": "shared.form-create-confirm",
-    "title": "表单变更"
+    "title": "新建表单"
   }
 }

@@ -29,6 +29,9 @@ def blank_context():
         "selection": {},
         "canvas": {"layoutMode": "flow", "isBlank": True},
         "capabilities": {
+            "supportedProposalContracts": ["form_change_proposal.v1"],
+            "supportedPresentationKinds": ["shared.form-create-confirm", "shared.form-change-confirm"],
+            "supportedActionVersions": ["1.0", "form_change_actions.v1"],
             "components": COMPONENT_CATALOG,
             "fieldNameRules": {"pattern": "^[a-z][a-z0-9_]*$", "maxLength": 50, "reserved": ["id"]},
             "optionRules": {"maxOptions": 20},
@@ -62,7 +65,8 @@ def compile_fields(fields, context=None):
     return compiled["output"]["form_proposal"]
 
 
-def assert_action_draft(test, proposal, kind="shared.table-field-confirm", property_actions=False):
+def assert_action_draft(test, proposal, kind=None, property_actions=False):
+    kind = kind or ("shared.form-create-confirm" if proposal.get("mode") == "replace_empty_form" else "shared.form-change-confirm")
     test.assertNotIn("result", proposal)
     test.assertNotIn("validation", proposal)
     test.assertEqual(set(proposal["presentation"]), {"kind", "title"})

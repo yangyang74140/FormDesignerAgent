@@ -1,6 +1,6 @@
 # 属性规则与宿主授权
 
-本规范保留七类组件已定义的属性语义，并统一使用顶层 actions 草稿。修改确认的 presentation 仅含 `shared.component-property-checklist` 的 kind/title；没有属性 items、after 或第二份目标新值。2026-11-23 用户指定的本地设计器已接入 PC Flow 既有处理器的最终草稿复验与执行，未实现能力仍不得开放；这不表示已部署。 本地组件定义只代表 Agent 理解和校验范围，宿主每轮声明才决定实际能力；未核验的组件或属性不自行补充。
+本规范保留七类组件已定义的属性语义，并统一使用顶层 actions 草稿。修改确认的 presentation 仅含 `shared.form-change-confirm` 的 kind/title；没有属性 items、after 或第二份目标新值。2026-11-23 用户指定的本地设计器已接入 PC Flow 既有处理器的最终草稿复验与执行，未实现能力仍不得开放；这不表示已部署。 本地组件定义只代表 Agent 理解和校验范围，宿主每轮声明才决定实际能力；未核验的组件或属性不自行补充。
 
 ## 规则的组织方式
 
@@ -45,11 +45,11 @@
 | `form.property.linkage` | operation=add/replace/remove、linkage_type、linkage_id、value | `form.apply_property_linkage` |
 | `form.property.undo` | transaction_id | `form.undo_property_transaction`；只允许真实当前可撤销事务 |
 
-修改提案保留 `protocol=form-agent.v1`、`contractVersion=form_property_proposal.v1`，顶层为 `mode=append`、`actionVersion=form_property_actions.v1` 和 actions。每条动作都有唯一 actionId、action、payload、dependsOn 数组及 display.selectedByDefault；属性变更、规则和联动动作还需 `preconditions.before={exists,value?}`。原状态优先读取 resolvedProperties[nodeId][property].stored，要求仅含 exists/value、exists 为布尔且与 value 是否存在一致，并为有限 JSON；没有 stored 时由组件规则读取本地快照。exists=false 不带 value；显式 false/null/0/空字符串不能被当作不存在，继承有效值不能冒充本地存储状态。规则/联动的 before 对应被修改配置的原语义值；不存在的配置用 exists=false。
+修改提案保留 `protocol=form-agent.v1`、`contractVersion=form_change_proposal.v1`，顶层为 `mode=append`、`actionVersion=form_change_actions.v1` 和 actions。每条动作都有唯一 actionId、action、payload、dependsOn 数组及 display.selectedByDefault；属性变更动作还需 `preconditions.before={exists,value?}`。原状态优先读取 resolvedProperties[nodeId][property].stored，要求仅含 exists/value、exists 为布尔且与 value 是否存在一致，并为有限 JSON；没有 stored 时由组件规则读取本地快照。exists=false 不带 value；显式 false/null/0/空字符串不能被当作不存在，继承有效值不能冒充本地存储状态。
 
 修改 payload 包含 nodeId、componentName、property、operation。set 的新值只在 payload.value；copy 固定 sourceNodeId/sourceProperty 和既有来源读取快照，复制值只在 payload.value；sourceSnapshot 是来源前置状态，不另造展示用目标新值副本。clear/unset/reset 不携带 value。before 是并发前置状态，不是重复新值；不得另加 after 或展示用目标新值。可选 display.effects 仅用字符串解释派生影响，例如“同时开启显示和编辑”，不作为写入指令。
 
-规则/联动沿用既有 payload 语义，要求注册目录、结构化 schema、兼容组件、真实引用与处理器；联动使用有界 AST，不执行模型生成的 JS 字符串。查询保留 `contractVersion=form_property_query.v1`、`presentation.kind=component_property_query`、readOnly=true 及 items，不含动作。撤销保留 component_property_undo 专用展示，transactionId/canUndo 用于真实事务状态，执行动作位于顶层 actions；不得投影为普通属性勾选卡。
+属性规则/联动缺少已约定的新可写协议，即使宿主仍声明旧目录和版本也返回 unsupported，不生成动作或确认卡。查询保留 `contractVersion=form_property_query.v1`、`presentation.kind=component_property_query`、readOnly=true 及 items，不含动作。撤销保留 form_property_proposal.v1 / form_property_actions.v1 和 component_property_undo 专用展示，transactionId/canUndo 用于真实事务状态，执行动作位于顶层 actions；不得投影为普通属性勾选卡。
 
 ## 设置、清空、删除、重置与复制
 

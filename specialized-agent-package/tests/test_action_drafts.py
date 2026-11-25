@@ -29,7 +29,7 @@ class ActionDraftTests(unittest.TestCase):
             "client_ref": "employee", "component_name": "Input", "name": "employee",
             "label": "unique-business-label", "placeholder": "unique-placeholder",
         }])
-        self.assert_draft(proposal, "shared.table-field-confirm")
+        self.assert_draft(proposal, "shared.form-create-confirm")
         serialized = json.dumps(proposal)
         self.assertEqual(serialized.count("unique-business-label"), 1)
         self.assertEqual(serialized.count("unique-placeholder"), 1)
@@ -41,7 +41,7 @@ class ActionDraftTests(unittest.TestCase):
         context["target"].update(formId="form-1", appId="app-1", layoutId="layout-1")
         original = deepcopy(context)
         proposal = run([change(value="unique-updated-value")], context)
-        self.assert_draft(proposal, "shared.component-property-checklist")
+        self.assert_draft(proposal, "shared.form-change-confirm")
         self.assertEqual(json.dumps(proposal).count("unique-updated-value"), 1)
         action = proposal["actions"][0]
         self.assertEqual(action["preconditions"]["before"], {"exists": True, "value": "旧"})
@@ -75,7 +75,7 @@ class ActionDraftTests(unittest.TestCase):
             {"capability": "proposal.begin", "slots": {"summary": "修改", "result_kind": "form_actions"}},
             {"capability": "form.update_component", "slots": {"payload": {"useSelection": True, "changes": {"label": "标题"}}}},
         ])
-        self.assert_draft(proposal, "shared.table-field-confirm")
+        self.assert_draft(proposal, "shared.form-change-confirm")
         self.assertEqual(proposal["actions"][0]["payload"], {"nodeId": "reason", "changes": {"label": "标题"}})
 
     def test_removal_is_a_default_selected_confirmation_card_with_fixed_targets(self):
@@ -84,7 +84,7 @@ class ActionDraftTests(unittest.TestCase):
             {"capability": "form.remove_component", "slots": {"payload": {"useSelection": True}}},
             {"capability": "form.remove_component", "slots": {"payload": {"nodeId": "draft-choice"}}},
         ])
-        self.assert_draft(proposal, "shared.table-field-confirm")
+        self.assert_draft(proposal, "shared.form-change-confirm")
         self.assertEqual(proposal["mode"], "append")
         self.assertEqual([action["action"] for action in proposal["actions"]], ["form.remove_component"] * 2)
         self.assertEqual([action["payload"] for action in proposal["actions"]], [{"nodeId": "reason"}, {"nodeId": "draft-choice"}])
@@ -96,7 +96,8 @@ class ActionDraftTests(unittest.TestCase):
             {"capability": "form.add_component", "slots": {"payload": {"clientRef": "note", "componentName": "Input", "props": {"label": "备注"}, "target": {"kind": "root"}}}},
             {"capability": "form.set_validation", "slots": {"payload": {"fieldRef": "note", "validatorName": "required"}}},
         ])
-        self.assertEqual(proposal["actions"][1]["dependsOn"], [proposal["actions"][0]["actionId"]])
+        self.assertEqual(proposal["status"], "unsupported")
+        self.assertNotIn("actions", proposal)
 
     def test_duplicate_action_ids_and_reused_client_refs_are_rejected(self):
         begin = {"capability": "proposal.begin", "slots": {"summary": "修改", "result_kind": "form_actions"}}

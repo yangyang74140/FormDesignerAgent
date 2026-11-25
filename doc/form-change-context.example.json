@@ -382,7 +382,7 @@
   },
   "supportedActionVersions": [
     "1.0",
-    "form_actions.v2"
+    "form_change_actions.v1"
   ],
   "requestId": "request-pc-mixed-example"
 }

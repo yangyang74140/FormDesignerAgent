@@ -46,6 +46,9 @@ class PropertyIntegrationTests(IsolatedAsyncioTestCase):
             "resolvedProperties": {"field-1": {}},
             "history": {},
             "capabilities": {
+                "supportedProposalContracts": ["form_change_proposal.v1"],
+                "supportedPresentationKinds": ["shared.form-create-confirm", "shared.form-change-confirm"],
+                "supportedActionVersions": ["1.0", "form_change_actions.v1"],
                 "catalogVersion": "component-properties.v1",
                 "actions": ["form.apply_property_change"],
                 "components": {"Input": {"properties": {
@@ -79,9 +82,9 @@ class PropertyIntegrationTests(IsolatedAsyncioTestCase):
         result = await self.agent.generate_form_proposal(context)
         proposal = result["output"]["form_proposal"]
         self.assertEqual(proposal["status"], "ready", proposal)
-        self.assertEqual(proposal["contractVersion"], "form_property_proposal.v1")
-        assert_action_draft(self, proposal, "shared.component-property-checklist", property_actions=True)
-        self.assertEqual(proposal["actionVersion"], "form_property_actions.v1")
+        self.assertEqual(proposal["contractVersion"], "form_change_proposal.v1")
+        assert_action_draft(self, proposal, "shared.form-change-confirm", property_actions=True)
+        self.assertEqual(proposal["actionVersion"], "form_change_actions.v1")
         self.assertEqual(proposal["actions"][0]["payload"]["value"], "请输入说明")
         self.assertEqual(proposal["actions"][0]["preconditions"]["before"], {"exists": True, "value": ""})
         self.assertEqual(snapshot, before)
@@ -167,9 +170,9 @@ class PropertyIntegrationTests(IsolatedAsyncioTestCase):
              "operation": "remove", "rule_type": "length", "rule_id": "rule-1"}},
         ]}
         result = self.agent.compile_platform_proposal(ir, snapshot)["output"]["form_proposal"]
-        self.assertEqual(result["status"], "ready", result)
-        self.assertEqual(result["actions"][0]["action"], "form.apply_property_rule")
-        self.assertEqual(snapshot["rules"]["field-1"][0]["id"], "rule-1")
+        self.assertEqual(result["status"], "unsupported", result)
+        self.assertEqual(result["diagnostics"][0]["code"], "PROPERTY_PROTOCOL_UNSUPPORTED")
+        self.assertNotIn("actions", result)
 
     def test_normalization_preserves_new_host_fields_and_copies_them(self):
         snapshot = self.context()

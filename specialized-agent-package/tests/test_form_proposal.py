@@ -27,6 +27,9 @@ def host_context(**overrides):
         "selection": {"nodeId": "reason", "parentId": None},
         "canvas": {"layoutMode": "flow", "device": "pc", "isBlank": False},
         "capabilities": {
+            "supportedProposalContracts": ["form_change_proposal.v1"],
+            "supportedPresentationKinds": ["shared.form-create-confirm", "shared.form-change-confirm"],
+            "supportedActionVersions": ["1.0", "form_change_actions.v1"],
             "components": [
                 {"componentName": "Input", "writableProps": ["label", "name", "required", "placeholder"]},
                 {"componentName": "SelectSingle", "writableProps": ["label", "name", "required", "options"]},
@@ -38,7 +41,7 @@ def host_context(**overrides):
             "functions": [{"name": "DATE_DIFF"}],
             "dataSources": [{"id": "employee-directory"}],
         },
-        "supportedActionVersions": ["form_actions.v2"],
+        "supportedActionVersions": ["form_change_actions.v1"],
     }
     value.update(overrides)
     return SimpleNamespace(context=value)
@@ -57,16 +60,13 @@ class FormProposalCompilerTests(unittest.TestCase):
                 "clientRef": "leave-note", "componentName": "Input", "props": {"label": "备注"},
                 "target": {"kind": "relative", "anchorNodeId": "reason", "position": "after"},
             }}},
-            {"capability": "form.set_validation", "slots": {"payload": {
-                "fieldId": "reason", "validator": {"name": "required"},
-            }}},
         ])
         self.assertEqual(result["protocol"], "form-agent.v1")
         self.assertEqual(result["status"], "ready")
         self.assertEqual(result["target"]["baseRevision"], "rev-10")
-        self.assertEqual(result["actionVersion"], "form_actions.v2")
+        self.assertEqual(result["actionVersion"], "form_change_actions.v1")
         assert_action_draft(self, result)
-        self.assertEqual(len(result["actions"]), 3)
+        self.assertEqual(len(result["actions"]), 2)
         self.assertTrue(result["proposalId"].startswith("proposal-"))
 
     def test_incremental_add_preserves_snake_case_client_ref(self):
@@ -105,14 +105,8 @@ class FormProposalCompilerTests(unittest.TestCase):
             }}},
             {"capability": "form.remove_component", "slots": {"payload": {"nodeId": "reason"}}},
         ], context)
-        assert_action_draft(self, result)
-        self.assertEqual([action["action"] for action in result["actions"]], ["form.update_component_options", "form.move_component", "form.remove_component"])
-        self.assertEqual([action["payload"]["nodeId"] for action in result["actions"]], ["draft-choice", "draft-choice", "reason"])
-        fields = apply_field_actions(before["currentSchema"]["fields"], result["actions"])
-        self.assertEqual([field["id"] for field in fields], ["draft-choice", "section"])
-        expected = deepcopy(before["currentSchema"]["fields"][1:])
-        expected[0]["props"]["options"] = [{"label": "新项", "value": "new"}]
-        self.assertEqual(fields, expected)
+        self.assertEqual(result["status"], "unsupported")
+        assert_non_executable(self, result)
         self.assertEqual(context.context, before)
 
     def test_action_references_only_accept_prior_new_fields(self):
@@ -123,7 +117,7 @@ class FormProposalCompilerTests(unittest.TestCase):
         rule = {"capability": "form.set_validation", "slots": {"payload": {
             "fieldRef": "note", "validatorName": "required",
         }}}
-        self.assertEqual(compile_items([begin, add, rule])["status"], "ready")
+        self.assertEqual(compile_items([begin, add, rule])["status"], "unsupported")
         with self.assertRaisesRegex(ValueError, "悬空引用"):
             compile_items([begin, rule, add])
 
@@ -158,7 +152,7 @@ class FormProposalCompilerTests(unittest.TestCase):
         self.assertEqual(compiled["summary"], "无需修改。")
 
     def test_action_must_be_declared_by_host(self):
-        context = host_context(capabilities={"components": [{"componentName": "Input"}], "actions": ["form.update_component"]})
+        context = host_context(capabilities={"supportedProposalContracts": ["form_change_proposal.v1"], "supportedPresentationKinds": ["shared.form-change-confirm"], "components": [{"componentName": "Input"}], "actions": ["form.update_component"]})
         result = compile_items([
             {"capability": "proposal.begin", "slots": {"summary": "添加字段", "result_kind": "form_actions"}},
             {"capability": "form.add_component", "slots": {"payload": {
@@ -171,12 +165,13 @@ class FormProposalCompilerTests(unittest.TestCase):
 
     def test_actions_require_version_and_capability_catalog(self):
         context = host_context(supportedActionVersions=[])
+        context.context["capabilities"]["supportedActionVersions"] = []
         result = compile_items([
             {"capability": "proposal.begin", "slots": {"summary": "更新字段", "result_kind": "form_actions"}},
             {"capability": "form.update_component", "slots": {"payload": {"fieldId": "reason", "changes": {"required": True}}}},
         ], context)
         self.assertEqual(result["status"], "unsupported")
-        self.assertIn("supportedActionVersions", result["summary"])
+        self.assertEqual(result["diagnostics"][0]["code"], "CHANGE_CONTRACT_UNSUPPORTED")
         assert_non_executable(self, result)
 
     def test_conversion_only_accepts_explicitly_unsaved_field(self):
@@ -227,8 +222,10 @@ class FormProposalCompilerTests(unittest.TestCase):
 
     def test_mapping_catalogs_are_supported(self):
         context = host_context(capabilities={
+            "supportedProposalContracts": ["form_change_proposal.v1"],
+            "supportedPresentationKinds": ["shared.form-change-confirm"],
             "components": {"Input": {"category": "field", "writableProps": ["label", "name"]}},
-            "actions": {"form.add_component": {"version": "form_actions.v2"}},
+            "actions": {"form.add_component": {"version": "form_change_actions.v1"}},
         })
         result = compile_items([
             {"capability": "proposal.begin", "slots": {"summary": "添加字段", "result_kind": "form_actions"}},
@@ -264,6 +261,9 @@ class FormProposalCompilerTests(unittest.TestCase):
 
     def test_incremental_changes_respect_writable_props(self):
         context = host_context(capabilities={
+            "supportedProposalContracts": ["form_change_proposal.v1"],
+            "supportedPresentationKinds": ["shared.form-create-confirm", "shared.form-change-confirm"],
+            "supportedActionVersions": ["1.0", "form_change_actions.v1"],
             "components": [{"componentName": "Input", "writableProps": ["label"]}],
             "actions": ["form.update_component"],
         })

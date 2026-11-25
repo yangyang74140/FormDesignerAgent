@@ -7,7 +7,7 @@ from test_form_field_list import assert_action_draft, assert_non_executable
 
 MODULE = load_compiler_module("properties")
 COMPONENT_RULES = load_compiler_module("components")
-compile_property_proposal = MODULE.compile_property_proposal
+compile_property_request = MODULE.compile_property_request
 
 
 def host(component="Input"):
@@ -17,9 +17,9 @@ def host(component="Input"):
         "canvas": {"layoutMode": "flow", "device": "pc"},
         "currentSchema": {"fields": [{"id": "a", "componentName": component, "props": {"label": "说明", "name": "note", "identifiers": {"name": "note"}, "placeholder": "旧", "size": "medium", "defaultValueConfig": "undefined", "access": {"required": False, "visible": False, "editable": False, "forbidManualInput": False}}}], "props": {"textAlign": "right"}},
         "selection": {"nodeId": "a"},
-        "capabilities": {"catalogVersion": "properties.v1", "components": {component: {"properties": properties}}},
+        "capabilities": {"supportedProposalContracts": ["form_change_proposal.v1"], "supportedPresentationKinds": ["shared.form-change-confirm"], "catalogVersion": "properties.v1", "components": {component: {"properties": properties}}},
         "nodePolicies": {"a": {"system": False, "saved": False, "disabledName": False, "writable": True}},
-        "supportedActionVersions": {"form.apply_property_change": ["form_property_actions.v1"]},
+        "supportedActionVersions": {"form_change_actions.v1": True},
     }
 
 
@@ -31,7 +31,7 @@ def change(prop="placeholder", value="新", operation="set", **extra):
 
 
 def run(items, context=None, kind="property_changes", base=None):
-    return compile_property_proposal([{"capability": "proposal.begin", "slots": {"result_kind": kind, "summary": "调整属性"}}, *items], context if context is not None else host(), base or {"protocol": "form-agent.v1", "schemaVersion": "1.1.0", "proposalId": "p1"})
+    return compile_property_request([{"capability": "proposal.begin", "slots": {"result_kind": kind, "summary": "调整属性"}}, *items], context if context is not None else host(), base or {"protocol": "form-agent.v1", "schemaVersion": "1.1.0", "proposalId": "p1"})
 
 
 class PropertyTests(unittest.TestCase):
@@ -43,7 +43,7 @@ class PropertyTests(unittest.TestCase):
 
     def property_action(self, result, index=0):
         self.assertEqual(result["status"], "ready", result)
-        assert_action_draft(self, result, "shared.component-property-checklist", property_actions=True)
+        assert_action_draft(self, result, "shared.form-change-confirm", property_actions=True)
         return result["actions"][index]
 
     def apply_property_action(self, context, action):
@@ -228,8 +228,8 @@ class PropertyTests(unittest.TestCase):
     def test_action_versions_catalogs_and_operations_fail_closed(self):
         for versions in (None, ["1.0"], ["form_property_actions.v2"]):
             context = host()
-            context["supportedActionVersions"]["form.apply_property_change"] = versions
-            self.rejected(run([change()], context), "ACTION_VERSION_UNSUPPORTED")
+            context["supportedActionVersions"] = versions
+            self.rejected(run([change()], context), "CHANGE_CONTRACT_UNSUPPORTED")
         context = host()
         del context["capabilities"]["catalogVersion"]
         self.rejected(run([change()], context), "MISSING_CATALOG_VERSION")
@@ -274,7 +274,7 @@ class PropertyTests(unittest.TestCase):
         context["capabilities"]["components"]["Input"]["properties"]["relatedField"].update(valueSchema={"type": "object", "properties": {}, "additionalProperties": False})
         self.rejected(run([change("relatedField", {})], context), "MISSING_COMPOUND_HANDLER")
         result = run([{"capability": "form.property.rule", "slots": {"node_id": "a", "operation": "add", "rule_id": "r", "rule_type": "regex", "value": "script"}}])
-        self.rejected(result, "EXTENSION_UNSUPPORTED")
+        self.rejected(result, "PROPERTY_PROTOCOL_UNSUPPORTED")
 
     def test_registered_bounded_rule_and_remove(self):
         context = host()
@@ -282,34 +282,20 @@ class PropertyTests(unittest.TestCase):
         context["supportedActionVersions"]["form.apply_property_rule"] = [MODULE.PROPERTY_ACTION_VERSION]
         context["rules"] = {"a": []}
         item = {"capability": "form.property.rule", "slots": {"node_id": "a", "operation": "add", "rule_type": "length", "rule_id": "r1", "value": {"max": 10}}}
-        result = run([item], context)
-        self.assertEqual(result["status"], "ready", result)
-        self.assertEqual(result["actions"][0]["action"], "form.apply_property_rule")
+        original = deepcopy(context)
+        self.rejected(run([item], context), "PROPERTY_PROTOCOL_UNSUPPORTED")
         context["rules"]["a"] = [{"id": "r1", "type": "length", "value": {"max": 10}}]
         item["slots"].update(operation="remove")
         item["slots"].pop("value")
-        result = run([item], context)
-        self.assertEqual(result["status"], "ready", result)
-        action = self.property_action(result)
-        self.assertEqual(action["payload"]["operation"], "remove")
-        self.assertEqual(action["payload"]["ruleId"], "r1")
-        self.assertNotIn("value", action["payload"])
-        self.assertEqual(action["preconditions"]["before"], {"exists": True, "value": {"max": 10}})
-        self.assertEqual(context["rules"]["a"], [{"id": "r1", "type": "length", "value": {"max": 10}}])
+        self.rejected(run([item], context), "PROPERTY_PROTOCOL_UNSUPPORTED")
+        self.assertEqual(original["rules"], {"a": []})
 
-    def test_linkage_ast_action_version_and_references(self):
+    def test_linkage_rejected_even_with_registered_legacy_authorization(self):
         context = host()
-        context["capabilities"]["linkageCatalog"] = {"visible": {"handlerId": "visible.v1", "components": ["Input"], "operations": ["add"], "astOperators": ["eq"], "valueSchema": {"type": "object", "properties": {"op": {"enum": ["eq"]}, "nodeId": {"type": "string"}, "value": {"type": "string"}}, "required": ["op", "nodeId", "value"], "additionalProperties": False}}}
-        context["linkages"] = {"a": []}
-        item = {"capability": "form.property.linkage", "slots": {"node_id": "a", "operation": "add", "linkage_type": "visible", "linkage_id": "l1", "value": {"op": "eq", "nodeId": "a", "value": "yes"}}}
-        self.rejected(run([item], context), "ACTION_VERSION_UNSUPPORTED")
+        context["capabilities"]["linkageCatalog"] = {"visible": {"handlerId": "visible.v1", "components": ["Input"], "operations": ["add"]}}
         context["supportedActionVersions"]["form.apply_property_linkage"] = [MODULE.PROPERTY_ACTION_VERSION]
-        result = run([item], context)
-        self.assertEqual(result["status"], "ready", result)
-        item["slots"]["value"]["nodeId"] = "unknown"
-        self.rejected(run([item], context), "INVALID_REFERENCE")
-        item["slots"]["value"] = "eval('bad')"
-        self.rejected(run([item], context), "INVALID_VALUE")
+        item = {"capability": "form.property.linkage", "slots": {"node_id": "a", "operation": "add", "linkage_type": "visible", "linkage_id": "l1", "value": {"op": "eq", "nodeId": "a", "value": "yes"}}}
+        self.rejected(run([item], context), "PROPERTY_PROTOCOL_UNSUPPORTED")
 
     def test_undo_current_history_only_and_no_inverse_patch(self):
         context = host()
@@ -326,7 +312,7 @@ class PropertyTests(unittest.TestCase):
         for context in ({}, {"selection": []}, None, []):
             self.rejected(run([change()], context if context is not None else {}))
         for items in (None, [None], [{"capability": "form.property.change", "slots": []}]):
-            result = compile_property_proposal(items, host(), {})
+            result = compile_property_request(items, host(), {})
             self.rejected(result)
         context = host()
         context["capabilities"]["components"] = []
@@ -485,7 +471,7 @@ class PropertyTests(unittest.TestCase):
 
     def test_native_capability_schema_fresh_and_complete(self):
         definitions = MODULE.property_capabilities()
-        self.assertEqual(len(definitions), 5)
+        self.assertEqual(len(definitions), 3)
         schema = definitions[0]["slots_schema"]
         self.assertEqual(schema["properties"]["selected"]["default"], True)
         self.assertEqual(schema["properties"]["operation"]["enum"], ["set", "clear", "unset", "reset", "copy"])

@@ -1,0 +1,22 @@
+{
+  "plan_items": [
+    {
+      "capability": "proposal.begin",
+      "slots": {
+        "summary": "新建姓名字段",
+        "title": "新建表单",
+        "result_kind": "form_fields",
+        "mode": "replace_empty_form"
+      }
+    },
+    {
+      "capability": "form.field.define",
+      "slots": {
+        "client_ref": "employee-name",
+        "component_name": "Input",
+        "label": "姓名",
+        "name": "employee_name"
+      }
+    }
+  ]
+}

@@ -37,7 +37,7 @@ class ActionVersionCompatibilityTests(unittest.TestCase):
                 self.assertEqual(result["actionVersion"], "1.0")
                 self.assertEqual(context, before)
 
-    def test_append_to_existing_schema_keeps_ids_and_uses_add_version(self):
+    def test_append_to_existing_schema_keeps_ids_and_uses_change_version(self):
         context = mixed_context()
         existing = {"id": "saved-note", "componentName": "Input", "props": {"label": "姓名", "name": "employee_name", "custom": "preserve"}}
         context["currentSchema"]["fields"] = [existing]
@@ -47,7 +47,7 @@ class ActionVersionCompatibilityTests(unittest.TestCase):
             {"capability": "form.field.define", "slots": FIELD},
         ], context)
         assert_action_draft(self, result)
-        self.assertEqual(result["actionVersion"], "1.0")
+        self.assertEqual(result["actionVersion"], "form_change_actions.v1")
         self.assertEqual(context["currentSchema"]["fields"], [existing])
         self.assertEqual(len(result["actions"]), 1)
         payload = result["actions"][0]["payload"]
@@ -88,45 +88,30 @@ class ActionVersionCompatibilityTests(unittest.TestCase):
     def test_missing_or_unimplemented_add_version_cannot_borrow_property_version(self):
         for versions in (None, [], ["9.0"], ["form_property_actions.v1"]):
             context = mixed_context()
-            if versions is None:
-                context["supportedActionVersions"].pop("form.add_component")
-            else:
-                context["supportedActionVersions"]["form.add_component"] = versions
+            context["capabilities"]["supportedActionVersions"] = {"form.add_component": versions}
             with self.subTest(versions=versions):
                 result = compile_fields([FIELD], context)
                 self.assertEqual(result["status"], "unsupported", result)
                 self.assertEqual(result["diagnostics"][0]["code"], "ACTION_VERSION_UNSUPPORTED")
                 self.assertIn("form.add_component", result["summary"])
 
-    def test_multi_action_batch_negotiates_only_common_emitted_versions(self):
-        context = host_context()
-        context.context["supportedActionVersions"] = {
-            "form.update_component": ["1.0", "form_actions.v2"],
-            "form.remove_component": ["1.0"],
-            "form.apply_property_change": ["form_property_actions.v1"],
-        }
-        items = [
-            {"capability": "proposal.begin", "slots": {"result_kind": "form_actions"}},
-            {"capability": "form.update_component", "slots": {"payload": {"fieldId": "reason", "changes": {"label": "说明"}}}},
-            {"capability": "form.remove_component", "slots": {"payload": {"fieldId": "draft-choice"}}},
-        ]
-        result = compile_items(items, context)
-        self.assertEqual(result["actionVersion"], "1.0")
-        context.context["supportedActionVersions"]["form.remove_component"] = ["form_actions.v1"]
-        result = compile_items(items, context)
-        self.assertEqual(result["status"], "unsupported", result)
-        self.assertEqual(result["diagnostics"][0]["code"], "ACTION_VERSION_UNSUPPORTED")
-        self.assertIn("没有共同支持", result["summary"])
-
-    def test_legacy_global_version_list_and_map_remain_supported(self):
-        for versions in (["1.0", "form_property_actions.v1"], {"1.0": True}, ["form_actions.v2"]):
+    def test_legacy_field_versions_do_not_authorize_changes_or_creation(self):
+        for versions in (["1.0"], ["form_actions.v1"], ["form_actions.v2"], {"1.0": True}):
             context = mixed_context()
-            context["capabilities"]["actions"] = ["form.add_component"]
+            context["capabilities"].pop("supportedActionVersions")
             context["supportedActionVersions"] = versions
-            result = compile_fields([FIELD], context)
-            self.assertEqual(result["actionVersion"], "form_actions.v2" if versions == ["form_actions.v2"] else "1.0")
+            result = compile_items([
+                {"capability": "proposal.begin", "slots": {"result_kind": "form_actions"}},
+                {"capability": "form.remove_component", "slots": {"payload": {"nodeId": "saved-note"}}},
+            ], context)
+            self.assertEqual(result["status"], "unsupported", result)
+            self.assertNotIn("actions", result)
+            if versions != ["1.0"] and versions != {"1.0": True}:
+                result = compile_fields([FIELD], context)
+                self.assertEqual(result["status"], "unsupported", result)
+                self.assertNotIn("actions", result)
 
-    def test_property_actions_still_use_the_exact_property_version_on_both_schemas(self):
+    def test_property_actions_use_change_version_on_both_schemas(self):
         helper = test_property_integration.PropertyIntegrationTests()
         for version in ("1.0.0", "1.1.0"):
             context = helper.context()
@@ -136,5 +121,5 @@ class ActionVersionCompatibilityTests(unittest.TestCase):
             result = compile_items(helper.ir()["plan_items"], context)
             self.assertEqual(result["status"], "ready", result)
             self.assertEqual(result["schemaVersion"], version)
-            assert_action_draft(self, result, "shared.component-property-checklist", property_actions=True)
-            self.assertEqual(result["actionVersion"], "form_property_actions.v1")
+            assert_action_draft(self, result, "shared.form-change-confirm", property_actions=True)
+            self.assertEqual(result["actionVersion"], "form_change_actions.v1")

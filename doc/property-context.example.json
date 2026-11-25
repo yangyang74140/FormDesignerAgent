@@ -120,7 +120,16 @@
           "identifiers": "不可更改身份标识"
         }
       }
-    }
+    },
+    "supportedProposalContracts": [
+      "form_change_proposal.v1"
+    ],
+    "supportedPresentationKinds": [
+      "shared.form-change-confirm"
+    ],
+    "supportedActionVersions": [
+      "form_change_actions.v1"
+    ]
   },
   "resolvedProperties": {
     "field-example": {
@@ -136,10 +145,5 @@
   },
   "history": {
     "canUndo": false
-  },
-  "supportedActionVersions": {
-    "form.apply_property_change": [
-      "form_property_actions.v1"
-    ]
   }
 }

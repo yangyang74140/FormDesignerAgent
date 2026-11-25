@@ -1,4 +1,4 @@
-"""Negotiation for the optional PC confirmation contracts."""
+"""Negotiation for the required PC writable confirmation contracts."""
 from collections.abc import Mapping
 
 CHANGE_CONTRACT = "form_change_proposal.v1"
