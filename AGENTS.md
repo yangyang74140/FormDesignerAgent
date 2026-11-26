@@ -21,6 +21,7 @@ Agent 依据宿主真实上下文生成建议；ai-chat 展示并维护用户确
 | `README.md` | 面向开发者的项目简介与资料入口 | 本项目自维护；保持简洁，不复制整份动作或输出契约 |
 | `specialized-agent-development-guide.md` | **第三方 Agent 开发文档**：插件三件套、Builder SDK、能力生成、Pipeline、打包发布等平台机制 | **只读参考，不修改**；不要把本项目的表单业务规范写入、追加或改写到这份文档 |
 | `external-publish-api-reference.md` | 平台对外调用参考：认证、invoke、SSE、Run、会话、附件等接口和事件 | 接入平台时按需查阅；本项目业务结构调整不能被写成平台已支持的新接口、事件或 SDK 能力 |
+| `package_agent.sh` | 一键生成上传 ZIP 的 Shell 命令入口 | 执行 `./package_agent.sh`，内部调用同目录的 `package_agent.py`；支持从其他工作目录调用 |
 | `package_agent.py` | 运行 Agent 测试、校验源码和导入完整性，生成上传 ZIP | 打包工具，不是业务协议规范；需要交付插件时使用 |
 | `canvas.json` | 本地表单画布数据样例 | 示例数据，不是规范或能力注册表；不能从示例中的具体业务标识推导通用规则 |
 | `aa.json` | 本地生成结果样例，供排查提案结构和重复数据 | 用户样例，不作为正式契约，不擅自覆盖或把其中结构推广为标准 |

@@ -8,6 +8,9 @@ import inspect
 from typing import Any
 
 from specialized.builder.sdk import create_external_agent
+from .form_generation.guidance import (
+    PREPARE_STEP, GUIDANCE_STEP, GUIDANCE_CONTRACT, collect_guidance,
+)
 from .form_generation.proposal import (
     FORM_PROPOSAL_CONTRACT,
     FORM_PROPOSAL_EVENT,
@@ -98,7 +101,69 @@ def compile_platform_proposal(ir_payload: Any, context: Any) -> dict[str, Any]:
         }
 
 
-async def generate_form_proposal(step_context: Any) -> Any:
+async def prepare_form_requirement(step_context: Any) -> Any:
+    result = await generate_form_proposal(step_context, publish=False)
+    if not _completed(result):
+        return result
+    proposal = result["output"]["form_proposal"]
+    if proposal.get("status") == "needs_clarification" and not proposal.get("fieldGuidance") and not proposal.get("clarificationOptions"):
+        host = normalize_host_context(step_context)
+        missing = [key for key in ("currentSchema", "capabilities", "supportedActionVersions") if not host.get(key)]
+        kind = proposal.get("clarificationKind")
+        if kind in {None, "field_addition"}:
+            if missing:
+                return {"status": "failed", "error_code": "form_guidance_host_context_missing",
+                        "summary": "宿主上下文或能力缺失：" + "、".join(missing), "abort_run": True}
+            result = await generate_form_proposal(step_context, publish=False, user_input={
+                "original_request": deepcopy(step_context.inputs),
+                "guidance_repair": {
+                    "previous_proposal": proposal,
+                    "instruction": "仅此一次修复：结合原始请求和真实宿主上下文判定 clarification_kind。字段新增语义未定必须返回完整 field_draft 候选，属性歧义只列对应槽位；属性修改、目标定位、场景需求不得误判为新增字段。能力不足返回 unsupported。不得以普通空选项澄清替代字段引导，也不得把未定需求直接猜成 ready。",
+                },
+            })
+            if not _completed(result):
+                return result
+            repaired = result["output"]["form_proposal"]
+            if (repaired.get("status") not in {"needs_clarification", "unsupported"}
+                    or (kind == "field_addition" and repaired.get("status") == "needs_clarification" and not repaired.get("fieldGuidance"))
+                    or (repaired.get("status") == "needs_clarification" and not repaired.get("fieldGuidance")
+                        and not repaired.get("clarificationOptions") and repaired.get("clarificationKind") in {None, "field_addition"})):
+                return {"status": "failed", "error_code": "form_field_guidance_repair_failed",
+                        "summary": "字段引导修复未生成有效结构化候选，未生成或应用变更。", "abort_run": True}
+    return {
+        "status": "completed",
+        "output": {"original_input": deepcopy(step_context.inputs),
+                   "proposal": result["output"]["form_proposal"],
+                   "diagnostics": result.get("diagnostics", [])},
+        "diagnostics": result.get("diagnostics", []),
+    }
+
+
+async def generate_confirmed_proposal(step_context: Any) -> Any:
+    data = step_context.inputs
+    if not isinstance(data, Mapping) or not isinstance(data.get("proposal"), Mapping):
+        return {"status": "failed", "error_code": "form_guidance_context_missing", "abort_run": True}
+    if "fieldSelection" in data:
+        from .form_generation.field_guidance import compile_draft
+
+        draft, selection = data["proposal"].get("fieldGuidance"), data["fieldSelection"]
+        if (not isinstance(draft, dict) or not isinstance(selection, dict)
+                or selection.get("draftId") != draft.get("draftId")
+                or type(selection.get("version")) is not int or not 1 <= selection["version"] <= 4):
+            return {"status": "failed", "error_code": "form_field_guidance_stale", "abort_run": True}
+        try:
+            proposal = compile_draft(draft, selection["fields"], step_context)
+        except (ValueError, KeyError, TypeError) as error:
+            return {"status": "failed", "error_code": "form_field_guidance_invalid", "summary": str(error), "abort_run": True}
+        return await _deliver_proposal(step_context, proposal, data.get("diagnostics", []))
+    if "answer" not in data:
+        return await _deliver_proposal(step_context, data["proposal"], data.get("diagnostics", []))
+    return await generate_form_proposal(step_context, user_input={
+        "original_request": data["original_input"], "clarification_answer": data["answer"],
+    })
+
+
+async def generate_form_proposal(step_context: Any, *, publish: bool = True, user_input: Any = None) -> Any:
     """Generate one capability-aware proposal and publish only the final artifact."""
     host_context = normalize_host_context(step_context)
     context_diagnostics = [host_context_diagnostic(step_context, "handler")]
@@ -118,7 +183,7 @@ async def generate_form_proposal(step_context: Any) -> Any:
             "禁止直接返回最终提案字段，也禁止使用其他根结构。"
         ),
         input_data={
-            "user_input": step_context.inputs,
+            "user_input": step_context.inputs if user_input is None else user_input,
             "host_context": deepcopy(host_context),
         },
         allow_plan_items=True,
@@ -137,6 +202,16 @@ async def generate_form_proposal(step_context: Any) -> Any:
             "根对象除 plan_items 外不得包含其他字段；不要把 capability、slots、summary、status、fields、actions、presentation、result 或 form_proposal 直接放在根对象。",
             "每个 capability 项目必须同时包含 capability 字符串和 slots 对象，不得省略 slots。",
             "每次必须且只能包含一个 proposal.* 状态项目。",
+            "所有 needs_clarification 应提供 clarification_kind：field_addition（已有表单新增字段）、property（修改已有属性）、scenario（场景表单）、target（目标歧义）、other。结合完整语义及宿主上下文判断，不按单个字段关键词分类。添加一个字段属于语义未定，应推荐完整可编译字段而不是空 choices 问名称类型。手机号等明确语义只为真实歧义属性分组，无歧义直接生成；不得猜必填、11位或动态源。",
+            "先检查需求是否明确：仅说生成一个审批表单、登记表或管理表单，且没有具体业务用途或明确字段时，必须用 proposal.needs_clarification 引导选择业务场景，不直接猜场景生成字段。",
+            "场景引导 slots 使用 summary、question、scenario_options；scenario_options 必须恰好三个互不重复且符合当前语境的具体场景，每项只有 label 和 description。编译器自动添加第四项其他，不同时提供 choices，不生成选项 ID。",
+            "例如生成一个审批表单，推荐请假审批表单、采购审批表单、报销审批表单，并说明各自用途；登记、预约等需求必须生成对应语境的推荐，不复用审批菜单。仅推荐表单内容，不承诺审批流程、集成或未授权组件能力。",
+            "用户已经说明请假、采购等用途，或给出明确字段清单时直接生成，不重复询问场景；任务是修改属性、移动或删除时不询问表单用途。已有明确要求但能力不足时返回 unsupported，不通过追问或推荐静默省略要求。",
+            "收到 original_request 和 clarification_answer 时合并原始需求与当前回答，回答仅补齐或明确纠正对应需求，保留原始约束；不要重复询问已经回答的槽位。回答仍不足或相互冲突时返回 needs_clarification，不猜测剩余关键信息。",
+            "已有表单插入字段组合，仅字段槽位有歧义时用 proposal.needs_clarification.slots.field_draft；明确字段要求仍直通，不强制问答。field_draft={prefill:一句话预填,begin:完整proposal.begin槽位,fields:完整form.field.define槽位数组,groups:歧义槽位数组}。begin 必须 result_kind=form_fields、mode=append，保留真实插入位置；其余已明确要求全部保留。",
+            "每个歧义组={field:字段0起始下标,slot:类别,reason:真实歧义原因,options:[{label:最终结果短标签,patch:结构化槽位补丁}]}。类别独立：semantics 在语义未定时给出完整 label/name/component_name 以及有依据的 required/placeholder/options；仅称谓歧义可只改 label/name。control 只改 component_name；validation 只改 required；data_source 只改静态 options；properties 只改 placeholder。完整语义候选不能与同字段其他组重复写属性。跨控件残余属性必须通过 patch.unset 显式列出 required/placeholder/options，不能静默清除用户约束；没有用户依据不得清除。不得修改client_ref或增加未知键。基线fields必须可编译，候选只是待确认预填，不表示已接受。",
+            "推荐按语境提供3至5个真实可用结果，不足则如实少给或为空；最多20个冻结备选供换一组。label不以选择/设置/配置开头，尽量12至16字且可更短。自定义、保留当前值、重新生成和回退由Agent处理，不生成这些推荐。不根据手机号等名称猜必填、11位、正则或数据源；明确要求不能由这七个字段槽位表达时返回unsupported，不通过引导静默省略。静态options只使用用户或真实宿主提供的label/value；不把动态数据源伪装为静态选项。",
+            "目标或属性歧义继续使用 question 和可选 choices；候选只引用真实快照与已支持语义，不为了凑四项虚构目标或能力。宿主上下文缺失不是业务场景缺失，不向用户询问 revision、节点 ID 或能力目录。",
             "新建完整表单必须使用 plan_items：第一项是 proposal.begin，result_kind=form_fields、mode=replace_empty_form；后续为全部字段各一条 form.field.define。",
             "已有画布只新增字段时，第一项为 proposal.begin，result_kind=form_fields、mode=append；后续仅定义新增的 form.field.define，不重生成已有字段。",
             "append 默认插入 currentSchema.fields 中最后一个 componentCategory=field（缺省视为 field）的组件之后；不指定位置时省略 target。",
@@ -178,7 +253,7 @@ async def generate_form_proposal(step_context: Any) -> Any:
         ],
         examples=[
             {
-                "input": "创建一份包含姓名和入职日期的员工入职登记表",
+                "input": "创建一份包含姓名和入职日期的员工入职登记表，两项均必填，姓名提示请输入姓名",
                 "output": {
                     "plan_items": [
                         {
@@ -213,6 +288,21 @@ async def generate_form_proposal(step_context: Any) -> Any:
                         },
                     ]
                 },
+            },
+            {
+                "input": "生成一个审批表单",
+                "output": {"plan_items": [{
+                    "capability": "proposal.needs_clarification",
+                    "slots": {
+                        "summary": "需要明确审批表单的业务用途。",
+                        "question": "你希望生成哪类审批表单？",
+                        "scenario_options": [
+                            {"label": "请假审批表单", "description": "记录请假类型、起止时间和原因。"},
+                            {"label": "采购审批表单", "description": "记录采购物品、数量、预算和用途。"},
+                            {"label": "报销审批表单", "description": "记录费用类型、金额和发生日期。"},
+                        ],
+                    },
+                }]},
             },
             {
                 "input": "生成一个禁用的姓名字段（宿主没有声明禁用属性和写入规则）",
@@ -330,6 +420,13 @@ async def generate_form_proposal(step_context: Any) -> Any:
             "status": "failed", "summary": "未得到有效表单提案。",
             "error_code": "form_proposal_missing", "diagnostics": diagnostics, "abort_run": True,
         }
+    if not publish:
+        return {"status": "completed", "output": {"form_proposal": proposal},
+                "summary": proposal.get("summary", ""), "diagnostics": diagnostics}
+    return await _deliver_proposal(step_context, proposal, diagnostics)
+
+
+async def _deliver_proposal(step_context: Any, proposal: Mapping[str, Any], diagnostics: list) -> dict:
     output = {"form_proposal": proposal}
     event_payload = {
         "block_id": "form_proposal",
@@ -386,6 +483,18 @@ def register_agent(context: Any) -> None:
         .use_plan(plan_template_key="standard_generation", strategy="intent_family", enabled=True)
         .output_structured(kind="form_proposal", schema=FORM_PROPOSAL_CONTRACT, schema_version="1")
         .pipeline_step(
+            key=PREPARE_STEP,
+            title="检查表单需求", output_type="json", output_contract=GUIDANCE_CONTRACT,
+            handler=prepare_form_requirement, input_from="original_input",
+            output_visibility="internal", reasoning_visibility="trace_only", timeout_ms=120000,
+        )
+        .pipeline_step(
+            key=GUIDANCE_STEP,
+            title="确认表单需求", output_type="json", output_contract=GUIDANCE_CONTRACT,
+            handler=collect_guidance, input_from="previous_step",
+            output_visibility="internal", reasoning_visibility="trace_only",
+        )
+        .pipeline_step(
             key=FORM_PROPOSAL_STEP,
             title="生成表单设计提案",
             running_title="正在检查表单上下文与能力",
@@ -393,8 +502,8 @@ def register_agent(context: Any) -> None:
             failed_title="表单设计提案生成失败",
             output_type="json",
             output_contract=FORM_PROPOSAL_CONTRACT,
-            handler=generate_form_proposal,
-            input_from="original_input",
+            handler=generate_confirmed_proposal,
+            input_from="previous_step",
             output_visibility="final_artifact",
             reasoning_visibility="trace_only",
             timeout_ms=120000,
@@ -403,7 +512,7 @@ def register_agent(context: Any) -> None:
             key=FORM_PROPOSAL_PIPELINE,
             artifact_kind="form_proposal",
             output_type="json",
-            steps=[FORM_PROPOSAL_STEP],
+            steps=[PREPARE_STEP, GUIDANCE_STEP, FORM_PROPOSAL_STEP],
             final_contract=FORM_PROPOSAL_CONTRACT,
             failure_policy="fail_fast",
         )

@@ -46,7 +46,10 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(self.agent, "create_external_agent", return_value=builder):
             self.agent.register_agent(SimpleNamespace())
         steps = {call.kwargs["key"]: call.kwargs for call in builder.pipeline_step.call_args_list}
-        self.assertEqual(list(steps), [self.agent.FORM_PROPOSAL_STEP])
+        self.assertEqual(list(steps), [self.agent.PREPARE_STEP, self.agent.GUIDANCE_STEP, self.agent.FORM_PROPOSAL_STEP])
+        self.assertEqual(steps[self.agent.PREPARE_STEP]["output_visibility"], "internal")
+        self.assertEqual(steps[self.agent.GUIDANCE_STEP]["input_from"], "previous_step")
+        self.assertEqual(steps[self.agent.GUIDANCE_STEP]["output_visibility"], "internal")
         step = steps[self.agent.FORM_PROPOSAL_STEP]
         self.assertEqual(step["output_visibility"], "final_artifact")
         self.assertEqual(step["reasoning_visibility"], "trace_only")
@@ -58,7 +61,54 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         pipeline = pipelines[self.agent.FORM_PROPOSAL_PIPELINE]
         self.assertEqual(pipeline["artifact_kind"], "form_proposal")
         self.assertEqual(pipeline["final_contract"], self.agent.FORM_PROPOSAL_CONTRACT)
-        self.assertEqual(pipeline["steps"], [self.agent.FORM_PROPOSAL_STEP])
+        self.assertEqual(pipeline["steps"], [self.agent.PREPARE_STEP, self.agent.GUIDANCE_STEP, self.agent.FORM_PROPOSAL_STEP])
+
+    async def test_guidance_pipeline_preserves_request_and_emits_only_final(self):
+        from test_form_field_list import blank_context
+        from test_guidance import scenario
+        from test_form_proposal import compile_items
+
+        context = SimpleNamespace(
+            inputs="生成一个审批表单，包含备注", context=blank_context(),
+            native_capability=SimpleNamespace(generate=AsyncMock(return_value={
+                "status": "completed", "output": {"form_proposal": compile_items([scenario()])},
+            })), event_publisher=AsyncMock(),
+            clarification=SimpleNamespace(request=AsyncMock(return_value=SimpleNamespace(
+                kind="selected", selected_option_id="scenario-1"))),
+        )
+        prepared = await self.agent.prepare_form_requirement(context)
+        context.event_publisher.assert_not_awaited()
+        context.inputs = prepared["output"]
+        confirmed = await self.agent.collect_guidance(context)
+        self.assertEqual(context.native_capability.generate.await_count, 1)
+        context.inputs = confirmed["output"]
+
+        async def generate(**kwargs):
+            self.assertEqual(kwargs["input_data"]["user_input"]["original_request"], "生成一个审批表单，包含备注")
+            self.assertEqual(kwargs["input_data"]["user_input"]["clarification_answer"]["text"], "请假审批表单")
+            return kwargs["compiler"]({"plan_items": [{"capability": "proposal.no_change", "slots": {"summary": "测试结果"}}]}, None)
+
+        context.native_capability.generate.side_effect = generate
+        result = await self.agent.generate_confirmed_proposal(context)
+        self.assertEqual(set(result["output"]), {"form_proposal"})
+        context.event_publisher.assert_awaited_once()
+
+    async def test_clear_request_bypasses_wait_and_second_model_call(self):
+        proposal = {"status": "no_change", "summary": "无需变更"}
+        context = SimpleNamespace(
+            inputs="检查表单", context={},
+            native_capability=SimpleNamespace(generate=AsyncMock(return_value={
+                "status": "completed", "output": {"form_proposal": proposal},
+            })), event_publisher=AsyncMock(),
+            clarification=SimpleNamespace(request=AsyncMock()),
+        )
+        context.inputs = (await self.agent.prepare_form_requirement(context))["output"]
+        context.inputs = (await self.agent.collect_guidance(context))["output"]
+        result = await self.agent.generate_confirmed_proposal(context)
+        self.assertEqual(result["output"]["form_proposal"], proposal)
+        context.native_capability.generate.assert_awaited_once()
+        context.clarification.request.assert_not_awaited()
+        context.event_publisher.assert_awaited_once()
 
     def test_bootstrap_uses_revision_package_relative_import(self):
         root = Path(__file__).resolve().parents[1]

@@ -12,6 +12,8 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 - `agent_definition.py`：append 意图、Plan、结构化输出和单一提案 Pipeline。
 - `form_generation/proposal.py`：统一提案入口、状态路由和字段动作编译。
 - `form_generation/drafts.py`：单一动作草稿封装、动作 ID 与依赖结构校验。
+- `form_generation/guidance.py`：场景推荐校验、检查点输入与平台等待式澄清、答案映射和取消。
+- `form_generation/field_guidance.py`：字段槽位冻结、原生分组回答、补丁整体复验、候选换组和回退。
 - `form_generation/action_rules/`：表单动作注册表与组件动作、规则/公式动作校验。
 - `form_generation/components/`：公共属性定义与统一注册；`definitions/` 按组件名维护属性文件，`definitions/_shared/` 维护实际复用的族处理。
 - `form_generation/properties.py`：属性提案编排、宿主授权与批次依赖校验。
@@ -131,7 +133,33 @@ ai-chat 从 actions 派生预览并维护唯一草稿。取消或删除新增建
 
 ## 运行编排
 
-`design_form` intent 指向单一 `form_proposal_generation` Pipeline：
+`design_form` intent 指向单一 `form_proposal_generation` Pipeline，依次执行 `form_requirement_preparation`（内部生成并冻结提案或问题）、`form_requirement_confirmation`（平台等待式澄清）、原 `form.proposal.generate` 最终步骤（交付或根据答案重新编译）。前两步只输出 internal 数据，最终仍只有 `{form_proposal: proposal}` 与一次 `form.proposal.completed`。具体步骤 key 以注册常量为准。
+
+### 场景引导与槽位补齐
+
+“生成一个审批表单”等缺少业务用途、也没有明确字段清单的请求，模型返回 `proposal.needs_clarification`，以 `scenario_options` 提供三个符合当前语境的 `{label,description}`。编译器检查数量、非空、重复和保留入口，分配稳定 ID 并追加“其他”，形成四项 `clarificationOptions`。审批场景示例为请假、采购、报销；其他主题动态生成，不能照搬审批菜单。语境匹配由模型规则和示例约束，真实模型效果须平台验收。明确用途或字段时直接生成；属性、目标歧义不强制凑四项，继续使用已有 question/choices。能力不足仍 unsupported，不静默缩减需求。
+
+等待步骤使用 SDK `context.clarification.request`，稳定 key 为 `form_requirement`，最多配置三轮。选择“其他”时在独立 key `form_requirement_other` 收集文本；这是第二次请求，仍允许自由文本。候选在前置检查点冻结，等待步骤重入只重放同一问题与答案，不调用模型。普通选择只按冻结候选 ID 解析标签，不能提交候选 value 覆盖语义。回答和原始输入一起交给原生成器，最新可获得的本轮宿主 context 仍是编译依据。用户取消返回非执行 no_change（平台若已终止 Run 则不会继续 handler）。
+
+场景分支支持一个引导问题及可选的“其他”文本补充；补齐后若仍有新歧义，最终返回非执行 needs_clarification，不无限追问或猜测。缺失宿主上下文不向业务用户追问技术参数。SDK 未提供澄清入口时保留非执行提案，消费端可展示问题，不假装已创建 interrupt。原始需求、问题和答案只通过步骤检查点传递，不使用模块全局会话状态、不自行创建新 Run。
+
+平台负责 `interrupt.waiting(type=clarification)`、resolve、轮次、终态和恢复；表单 Agent 不自行发布这些事件。回答只确认需求，最终 actions 仍须用户另行确认后由宿主验证应用。原 Run 恢复不保证画布实时刷新，宿主必须继续校验 revision；冲突时刷新上下文重生成。resolve 在接口参考中标为部分可用，本地 SDK 替身测试不代表线上链路已部署。
+
+### 字段级分组引导（1.2.17）
+
+已有非空单层 Flow 表单插入字段组合，且字段槽位存在歧义时，模型应提供 `proposal.needs_clarification.slots.field_draft`。`field_guidance.py` 冻结一句话预填、完整字段组合、插入位置及真实候选；按字段将语义、控件类型、校验、数据来源、字段属性分别分组，只显示有歧义的组。明确需求继续直通；场景推荐仍为三个加其他。
+
+语义未定（如“添加一个字段”）推荐完整字段名称、控件和有依据的属性；手机号等语义明确时仅展示实际歧义槽位。完整语义候选与属性组不可重叠写入，跨控件残留属性只允许显式 unset 并整体复验。前置生成后检查结构化 clarification_kind；未分类普通澄清或字段引导缺草稿时，宿主上下文齐备才允许一次受控修复，再失败明确中止；等待重入不重跑模型。缺上下文明确报告，分类依赖受控模型语义判断，不以简单关键词替代。
+
+候选携带 Agent 内部结构化 patch，标签为最终结果、最长16字，不以选择/设置/配置开头。每页最多5条真实推荐（通常3至5条，候选不足如实少给），另有自定义入口；不为凑数造能力。原生 SDK 仅接收冻结的 id/label，完整分组一次提交；回答查表合并，整体复验后直接调用 `form.field.define` 编译链，不再调用自然语言生成器。自定义采用当前槽位 JSON 对象；不支持自由文本转义为规则。
+
+目前字段定义七槽位的实际边界不变：校验仅能表达 required，数据来源组仅能表达有依据的静态 options，字段属性组仅 placeholder；不能设置动态数据源、11位/正则、禁用或其他字段属性。明确要求无法表达时必须 unsupported，不能通过更换类型或省略值降级。未明确的必填不自动设为 true，类型标签不能成为规则依据。
+
+分组回答后提供独立复核操作：生成提案、回退上次修改、重新生成推荐。重新生成在已冻结且已验证的候选池中换一组，保留确认值并提供保留当前值入口；候选不足不会凭空追加。回退恢复本轮回答前的字段值与确认状态；四次分组修改为上限，超限失败关闭。所有问题/选项均绑定确定性的草稿 ID 与递增版本；重入只重放原生澄清记录，不重跑模型，旧版本回答、缺题和宿主快照变化均拒绝。具体 IR、接入限制及示例见[动作规范](./specs/actions.md#字段槽位草稿)和[三端接入说明](../doc/ai-chat-property-edit-integration.md#22-字段级槽位引导agent-1217)。
+
+这不是已实现的 ai-chat chip UI：当前实际可运行的是平台原生分组澄清加独立复核题。缺少 request_group 时保留非执行提案，不降级逐槽位追问。最终仍是唯一 actions 草稿，选择推荐或生成提案均不授权应用或保存。
+
+### 生成与交付约束
 
 1. 从 handler 的 `step_context.context` 归一化并隔离本轮宿主快照，不从历史对话补猜画布状态。生成器接收快照副本，编译器通过本轮闭包使用同一份权威快照；不再依赖 Native Capability 回调的第二个参数重新读取宿主状态，避免回调结构不同或旧数据造成误报、串单。
 2. Native Capability 只生成受控 IR，根对象统一为 `{"plan_items":[{"capability":"...","slots":{...}}]}`；一个 `proposal.*` 状态，新建时再生成若干 `form.field.define`。
@@ -211,7 +239,7 @@ python3 -B -m unittest discover -s specialized-agent-package/tests -q
 python3 package_agent.py
 ```
 
-在仓库根目录执行。脚本先运行回归测试，再检查 Python 语法和最终 ZIP 条目，按 manifest 版本生成上传包；本次目标版本为 `1.2.13`（`specialized-agent-package-1.2.13.zip`），生成或上传不代表三端已部署。上传包根目录为插件入口，不包含测试、缓存或本地资料。
+在仓库根目录执行。脚本先运行回归测试，再检查 Python 语法和最终 ZIP 条目，按 manifest 版本生成上传包；本次目标版本为 `1.2.19`（`specialized-agent-package-1.2.19.zip`），生成或上传不代表三端已部署。上传包根目录为插件入口，不包含测试、缓存或本地资料。
 
 
 ### 规则、联动和撤销上下文约定
@@ -230,7 +258,7 @@ JSON Schema 仅支持编译器已实现的受控子集，未实现关键字（�
 - 支持 NumberPicker 的成组 `numericRange` 和 SelectMulti 的 `selectionLimit`。
 - `resolvedProperties[nodeId][property].stored` 为宿主提供的语义配置状态；经过结构校验后用于 before。查询有效值使用 `resolvedValue` 与 `source`。
 - `textLengthLimit` 的 set 输入遵守宿主数值 schema；clear/reset 不把内部派生配置作为 set 输入校验。原状态在 action.preconditions.before，新值只在 payload，不输出 after。TimePicker 动态当前时间支持面板的 `dynamicAnchor="today"`。
-- 以上修复已整合到当前 `1.2.13` 包和单一 actions 契约；上传发布后仍需宿主和聊天包完成对应协议接入，不能仅更新 Agent 就认为画布执行已就绪。
+- 以上修复已整合到当前 `1.2.19` 包和单一 actions 契约；上传发布后仍需宿主和聊天包完成对应协议接入，不能仅更新 Agent 就认为画布执行已就绪。
 
 ### Agent 能力更新后宿主需要做什么
 

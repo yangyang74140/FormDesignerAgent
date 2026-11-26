@@ -20,6 +20,8 @@ form_generation/
 ├── proposal.py          # 统一编译入口、字段动作编译与顺序
 ├── properties.py        # 属性提案编排、宿主授权、批次依赖
 ├── drafts.py            # 单一动作草稿、动作 ID 与依赖结构校验
+├── guidance.py          # 场景澄清及字段引导路由
+├── field_guidance.py    # 冻结字段槽位、分组回答映射、整体复验和回退
 ├── host.py              # 宿主目录和节点身份读取
 ├── action_rules/
 │   ├── __init__.py      # 动作名称、能力声明与校验分派

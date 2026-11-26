@@ -114,6 +114,36 @@ def proposal_capabilities(context: Mapping[str, Any] | None = None) -> list[dict
                 "properties": {
                     "summary": {"type": "string"},
                     "question": {"type": "string"},
+                    "clarification_kind": {"type": "string", "enum": ["field_addition", "property", "scenario", "target", "other"]},
+                    "field_draft": {
+                        "type": "object", "additionalProperties": False,
+                        "required": ["prefill", "begin", "fields", "groups"],
+                        "properties": {
+                            "prefill": {"type": "string"},
+                            "begin": {"type": "object", "description": "proposal.begin 槽位，必须 form_fields + append，保留插入位置"},
+                            "fields": {"type": "array", "items": {"type": "object"}, "description": "完整 form.field.define 槽位列表；明确值保留，无依据不猜必填等规则"},
+                            "groups": {"type": "array", "minItems": 1, "maxItems": 20, "items": {
+                                "type": "object", "additionalProperties": False,
+                                "required": ["field", "slot", "reason", "options"],
+                                "properties": {
+                                    "field": {"type": "integer", "minimum": 0},
+                                    "slot": {"type": "string", "enum": ["semantics", "control", "validation", "data_source", "properties"]},
+                                    "reason": {"type": "string"},
+                                    "options": {"type": "array", "maxItems": 20, "items": {
+                                        "type": "object", "additionalProperties": False,
+                                        "required": ["label", "patch"],
+                                        "properties": {"label": {"type": "string", "maxLength": 16}, "patch": {"type": "object"}},
+                                    }},
+                                },
+                            }},
+                        },
+                    },
+                    "scenario_options": {
+                        "type": "array", "minItems": 3, "maxItems": 3,
+                        "items": {"type": "object", "required": ["label", "description"],
+                                  "additionalProperties": False,
+                                  "properties": {"label": {"type": "string"}, "description": {"type": "string"}}},
+                    },
                     "choices": {"type": "array", "items": {"type": "string"}},
                     "code": {"type": "string"},
                 },
@@ -257,6 +287,26 @@ def _compile_form_proposal(ir_payload: Any, step_context: Any) -> dict[str, Any]
             raise ValueError("needs_clarification 必须包含 question")
         choices = [_text(choice) for choice in slots.get("choices", []) if _text(choice)] if isinstance(slots.get("choices"), list) else []
         base["question"] = question
+        kind = slots.get("clarification_kind")
+        if kind is not None:
+            if not isinstance(kind, str) or kind not in {"field_addition", "property", "scenario", "target", "other"}:
+                raise ValueError("clarification_kind 不合法")
+            base["clarificationKind"] = kind
+        if "field_draft" in slots:
+            if kind not in {None, "field_addition"}:
+                raise ValueError("字段草稿与澄清意图不一致")
+            base["clarificationKind"] = "field_addition"
+            from .field_guidance import freeze_draft
+
+            if "scenario_options" in slots or "choices" in slots:
+                raise ValueError("字段槽位引导不能混入场景菜单或普通 choices")
+            base["fieldGuidance"] = freeze_draft(slots["field_draft"], context)
+        if "scenario_options" in slots:
+            from .guidance import scenario_options
+
+            if choices:
+                raise ValueError("场景推荐不能同时提供 choices")
+            base["clarificationOptions"] = scenario_options(slots["scenario_options"])
         if choices:
             base["choices"] = choices
         base["diagnostics"] = [_diagnostic(_text(slots.get("code"), "CLARIFICATION_REQUIRED"), summary)]

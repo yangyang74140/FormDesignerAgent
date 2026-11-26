@@ -1,6 +1,6 @@
 # 单一动作草稿：Agent、ai-chat 与设计器宿主接入
 
-契约更新：2026-11-23；Agent 目标包版本：1.2.13。
+契约更新：2026-11-24；Agent 目标包版本：1.2.19。
 
 **Agent 与 ai-chat 使用单一 actions 草稿；ai-chat 支持真实 context 中的 formDraftCapabilities、属性 bridge.apply({proposal, applyRequestId}) 和 appliedActionIds 回执，不需要 register。2026-11-23 属性回执修复已将用户指定的本地设计器接入这一契约：仅 PC Flow 已支持的属性处理器，应用时复验最终草稿并原子提交；不表示已部署，也不开放未实现的查询卡、撤销卡、规则、联动或复制。** 下列清单是完整接入和验收要求，未勾选项不表示某项目最新代码一定未实现，亦不构成部署证明。
 
@@ -68,6 +68,50 @@ flowchart TD
 只读查询是例外：保留 form_property_query.v1、component_property_query 的 readOnly/items，无 actions，不要求写动作版本。撤销也是专用路径：component_property_undo 保留真实 transactionId/canUndo，执行动作 form.undo_property_transaction 位于顶层 actions，不进入普通确认卡。因此修改确认的 kind/title 限制不覆盖查询和撤销。
 
 完整 JSON、ready、有效领域契约、匹配 kind、已注册且被业务白名单允许必须同时满足，才可展示对应确认卡；未知、无效或错配 kind 拒绝，不尝试其他卡片兜底。非 ready、只读查询和撤销不因设置 kind 获得普通应用资格。此次不解析旧 kind、显式 component 或旧嵌套动作格式。append 表示增量应用，不表示把卡片或字段列表追加到旧列表。
+
+## 2.1 场景引导接入（Agent 1.2.15，平台与 ai-chat 待联调）
+
+Agent 先在内部步骤生成并冻结需求提案，再用 SDK `context.clarification.request` 等待答案。模糊业务场景提供三个语境相关推荐和第四项“其他”；普通目标歧义不强制四项。前置模型结果进入平台检查点，等待步骤恢复不得再次调用模型生成另一组候选。最终仍返回既有 `{form_proposal: proposal}`，回答不直接调用 bridge.apply。
+
+ai-chat 应消费平台 `interrupt.waiting`，按 `type=clarification` 的 `payload.clarification` 渲染候选 id/label/description 与文本入口。不得把业务 proposal 的 needs_clarification 状态当作一个已经存在的 interrupt。只有真实等待事件提供的 interrupt_id、actions、current_round、input_enabled 才能授权调用 resolve。场景推荐不需要新增自定义 SSE 事件或另建 Run。
+
+按最新平台外部接口参考提交 `POST /openapi/v1/runs/{run_id}/interrupts/{interrupt_id}/resolve`：action 为当前允许的 answer，单选 payload 为 `{kind:"selected",selected_option_id:冻结候选ID,round:当前轮次}`；允许自由文本时为 `{kind:"text",text:非空文本,round:当前轮次}`。同时提交 user_id 和稳定 idempotency_key；结果未知用同键同参数重试。选择“其他”后 Agent 发起下一条文本询问，客户端不自行把选项和文本混成未声明的答案格式。取消仅在 actions 允许时提交 cancel。
+
+resolve 响应不返回后续 SSE，继续订阅原 Run。clarification.requested/fulfilled/exhausted/late_input_discarded 是 status.update.source_event_type；interrupt.resolved 不代表 Run 完成，followup_suggestions 是后置建议而不是本次阻塞问答。终态或迟到答案按平台拒绝语义处理。
+
+没有 SDK 澄清入口时 Agent 保留非执行 question/choices 或 clarificationOptions，客户端可以展示但不能编造 interrupt_id。首次回答后仍有关键歧义时本次实现返回 needs_clarification，不自动无限追问。客户端布局、推荐标记及四项卡片渲染仍须 ai-chat 实施核验；本仓库未修改该项目。接口标记 resolve 为“部分可用”，发布前必须联调真实等待、其他文本、取消、重连恢复和过期 revision。
+
+## 2.2 字段级槽位引导（Agent 1.2.17）
+
+1.2.17 增加前置分类与一次修复：普通未分类澄清须先判定真实意图，字段新增缺草稿时修复成完整候选；上下文缺失或修复仍无效则失败，不发空选项字段问题。语义未定的候选可同时修改名称、控件及有依据属性，独立属性组保留；显式 unset 及整批复验防止跨控件残留被静默丢弃。修复在等待前完成，SDK 参数和平台事件均不变。
+
+本仓库已实现：已有表单新增字段组合的冻结草稿、仅歧义槽位分组、候选 ID 到结构化 patch 的映射、整组原子合并和复验、直接字段编译、版本防旧答案、保留确认值与本轮回退。尚未实现本仓库之外的 ai-chat chip UI。完整业务结构及允许的槽位键见[字段槽位草稿](../specialized-agent-package/specs/actions.md#字段槽位草稿)。
+
+真实平台 SDK 只有 `clarification.request/request_group`，选项仅 id/label/description，不支持自定义 payload/slot_key、按钮布局、更新草稿事件或原生回退参数。本实现不向 SDK 增加参数：每组题对应一个歧义槽位，Agent 内部检查点保存 patch；点击候选只记录该题选项 ID。消费端可将题目 options 展示成独立 chip 组，必须整组显式提交，不能仅提交第一组或把点击一枚 chip 当作整组回答。题面包含一句话预填、当前值及可改点，推荐不足不凑数；自定义入口显式存在。
+
+按真实 interrupt 的 group.key、questions[].id、current_round 组装 resolve（外部接口的 answers 是数组，SDK handler 收到的 answers 是按题 ID 索引的映射）：
+
+```json
+{
+  "action": "answer",
+  "payload": {
+    "kind": "group",
+    "group_key": "<当前 clarification.group.key>",
+    "round": 1,
+    "answers": [
+      {"question_id": "<题ID>", "kind": "selected", "selected_option_id": "<冻结选项ID>"}
+    ]
+  },
+  "idempotency_key": "<本次提交稳定键>",
+  "user_id": "<当前用户>"
+}
+```
+
+answers 必须覆盖全部题目。自由文本仅在 input_enabled 允许时提交，本字段分支要求内容为当前槽位 JSON（如 `{"placeholder":"填写联系人姓名"}`），直接 JSON 不经自然语言解析；未知键、自然语言和非法组合失败关闭。选择“自定义”后，Agent 将所有待补充组一起发起下一组 JSON 文本题。普通客户端无需理解 patch 即可运行；更友好的文字编辑器可在消费端将编辑值编码为该 JSON，但不能凭标签猜规则或增加未支持字段。
+
+合并通过后另发一条原生复核题，含“生成提案”“回退上次修改”“重新生成推荐”。这些是独立操作，不属于字段槽位推荐；当前平台不能将其原生放置在同一 chip 卡外部工具栏，也不能撤销已经 resolve 的答案。Agent 的回退方式是用新版本问题恢复本轮合并前的字段与确认状态；重新生成是在冻结的真实候选池中换一组，保留已确认值，而不是重新调用模型创造候选。客户端只能回答当前真实等待题，不得对旧 interrupt 回放新控制值；未提交时的局部修改撤销由客户端负责。本轮最多四次分组修改，超限不交付动作。
+
+缺少 request_group 的运行环境保留非执行 fieldGuidance，不串行退化逐槽位询问、不虚构 interrupt；消费端须提示当前环境缺少分组澄清能力。宿主快照或能力发生变化、回答缺组、选项身份/版本不符都会阻断；需新请求携带最新上下文。通过后的最终产物只含既有 actions 草稿，不含 fieldGuidance/fieldSelection，仍须另行编辑确认、宿主复验与 Apply。集成验收需实际平台恢复、group resolve、SSE 和 ai-chat UI；本仓库测试使用遵循文档签名的 SDK 替身，不代表这些外部能力已部署。
 
 ## 3. ai-chat 待办清单
 

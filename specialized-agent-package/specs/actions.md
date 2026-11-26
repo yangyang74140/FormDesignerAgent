@@ -70,6 +70,56 @@
 
 保留 `form.apply_property_change`、`form.apply_property_rule`、`form.apply_property_linkage`、`form.undo_property_transaction` 名称及既有语义，统一放在顶层 actions。它们不借通用动作路径绕过属性授权。修改动作的新值只在 payload，原状态只在 preconditions.before，不返回 after。set/copy 带 value；clear/unset/reset 不带 value。规则/联动前置状态与专用撤销要求见[属性规则](./properties.md)。
 
+## 引导确认（非执行产物）
+
+`proposal.needs_clarification` 的 IR 保留 summary/question/choices/code，增加可选 `scenario_options`：恰好三个只含非空 label/description 的具体场景，标签不能重复或包含“其他”，不能同时提供非空 choices。编译器追加第四项“其他”，输出 proposal.clarificationOptions，每项为稳定 id/label/description；场景项 ID 为 scenario-1 至 scenario-3，其他为 other。此列表只有询问语义，不是动作草稿或宿主执行能力声明。普通定位/属性澄清仍可只含 question/choices，不为凑四项捏造目标。
+
+前序内部步骤冻结候选，等待步骤调用平台原生 clarification.request；答案用冻结 ID 查回标签，文本必须非空，未知 ID/答案类型失败关闭。其他入口通过第二个稳定问题收集用途。取消为 no_change，缺少平台澄清接口时保留 needs_clarification；两者均无动作和应用卡。最终编译收到原需求和答案，保留原始约束并按宿主能力重新校验。选择推荐不等于应用确认。恢复检查点及平台事件接入见包 README 与三端接入说明。
+
+### 字段槽位草稿
+
+字段级歧义使用 `proposal.needs_clarification.slots.field_draft`，不能混入 scenario_options 或 choices。这只是非执行引导状态的扩展；`form.field.define` 的七个槽位、最终 actions 与动作名称均不变。结构示例：
+
+```json
+{
+  "prefill": "在事由后插入联系人，称谓可修改。",
+  "begin": {
+    "summary": "新增联系人", "result_kind": "form_fields", "mode": "append",
+    "target": {"kind": "relative", "anchorNodeId": "reason", "position": "after"}
+  },
+  "fields": [{"client_ref": "contact", "component_name": "Input", "label": "联系人", "name": "contact"}],
+  "groups": [{
+    "field": 0, "slot": "semantics", "reason": "联系人称谓尚不明确",
+    "options": [
+      {"label": "紧急联系人", "patch": {"label": "紧急联系人"}},
+      {"label": "日常联系人", "patch": {"label": "日常联系人"}}
+    ]
+  }]
+}
+```
+
+begin 仅支持 form_fields/append，保留完整位置约束；fields 是完整待插入组合，不含旧字段。预填组合及每个推荐单独替换后的组合都必须可编译；本轮全部回答合并后再次整体校验，名称冲突、类型不兼容、未知属性、能力缺失等都阻止整批，不删除其他要求“修复”。基线只是候选预填，所有歧义组必须收到有效回答才能生成提案。原文语义与候选业务真实性由模型规则约束，编译器确定性校验结构、能力、身份、引用和最终候选；不能声称已证明自然语言需求完整性。
+
+每组只对应一个字段下标与一个槽位类别，同字段同类别不得重复：
+
+| slot | patch 允许键 | 当前边界 |
+| --- | --- | --- |
+| semantics | label、name；完整候选另含 component_name 及有依据的 required、placeholder、options | 语义未定推荐完整字段；仅称谓歧义可单改名称。client_ref、数量与位置固定 |
+| control | component_name；可选 unset | 宿主可用组件与本地支持交集，不能隐式删除不兼容选项 |
+| validation | required | 仅布尔值；不自动推导长度、正则等校验 |
+| data_source | options | 有依据的静态 label/value 数组；不绑定动态来源 |
+| properties | placeholder | 非空提示文字；其他字段属性暂不支持 |
+
+完整语义补丁一旦设置控件或属性，必须同时包含 label/name/component_name；如 `{"label":"手机号","name":"phone","component_name":"Input"}`，不凭名称推断必填、11位或动态来源。semantics/control 的可选 `unset` 数组显式列出要移除的 required/placeholder/options；其他属性组只能清除自己的键。禁止删除身份、同时设置并删除或重复键。省略属性表示保留，跨控件不自动清理；清理须有用户约束依据，并由用户确认及整体编译复验。完整语义候选与同字段其他分组不可重叠写属性，自定义合并也检查重叠，避免后组覆盖前组。候选属性的自然语言依据仍由模型判断，结构校验不能证明其业务真实性。
+
+前置步骤使用 `clarification_kind`（field_addition/property/scenario/target/other，输出为 clarificationKind）区分字段新增、属性修改、场景、定位及其他澄清，不用关键词路由。字段草稿隐含 field_addition。普通澄清缺分类，或已确认 field_addition 却缺 field_draft 时，检查宿主 currentSchema/capabilities/supportedActionVersions；缺失以 form_guidance_host_context_missing 明确失败。上下文齐备则仅调用一次相同 Native Capability 生成器，带原请求与修复要求重新分类并生成结构化候选；修复不能把未定需求猜成 ready/no_change。仍缺结构化字段草稿或分类则 form_field_guidance_repair_failed，模型/编译失败保留原失败，不进入空 options 等待。已明确属性/目标澄清、场景三个加其他、ready 需求维持原路径。修复只在有检查点的前置步骤执行；等待和选择后编译都不调用模型。
+
+每组最多20个冻结候选，每轮显示最多5个推荐；不足3个如实展示，自定义不算推荐。label 非空、不重复、至多16字且不能以选择/设置/配置开头。相同补丁不重复推荐。开放槽位总有显式“自定义”入口；直接自由文本或自定义补充题只接收当前槽位 JSON 对象，禁止跨组改键，未知键拒绝。全组收集后才合并，不逐槽位问答；选了自定义的组也统一补充。
+
+编译器输出非 ready 的 `proposal.fieldGuidance`，包含上述草稿、由内容及宿主快照计算的 draftId、version=1 和 hostFingerprint。平台检查点保存完整候选 patch，不向 SDK options 添加 payload/slot_key。每题及选项 ID 带 draftId、当前版本及组序号，推荐选项映射回冻结 patch；任何未知、旧版 ID 或缺失分组失败关闭。等待步骤产物 fieldSelection 只在内部保存最终字段值与身份版本，最终步骤复验当前宿主指纹并直接结构化编译，不产生第二份最终字段清单。
+
+复核操作独立于槽位推荐：confirm 生成提案；back 恢复本轮回答前的字段和确认状态；regenerate 在冻结池中移动5项并保留已确认值，不能调用模型重新解释答案。每次重新展示版本递增，最多四次；原生所有请求显式 max_rounds=16，最多12次请求，保留自由文本可答空间。请求 key 确定性生成，重入从相同前置检查点重放；不使用全局会话状态、随机 key 或自行创建 Run。失败码 form_field_guidance_invalid，最终内部身份错误为 form_field_guidance_stale。缺少原生分组接口保持非执行状态，取消不保留 fieldGuidance。选择推荐不是 Apply 授权。
+
 ## 错误与应用
 
 组件、属性、动作或动作版本能力缺失时整批 `unsupported`，summary 与 diagnostics.message 说明原因，无执行动作或可应用确认卡。典型码：MISSING_COMPONENT_CATALOG、UNSUPPORTED_COMPONENT、MISSING_WRITABLE_PROPS、UNSUPPORTED_PROPERTY、ACTION_UNSUPPORTED、ACTION_VERSION_UNSUPPORTED。不得交付忽略不支持要求的部分 ready 提案。例如未声明禁用语义时说明“暂时还不支持禁用”，不猜 disabled/readOnly/edit=false/access 或以禁止手工编辑替代；用户明确要求且授权的权限操作仍使用既有语义。
