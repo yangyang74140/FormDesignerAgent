@@ -150,6 +150,7 @@ async def generate_form_proposal(step_context: Any) -> Any:
             "每条属性 IR 使用 node_id 或 use_selection=true，也可用 node_label/node_name 唯一定位；property 必须来自宿主 properties 目录。operation=set/clear/unset/reset/copy，set 必须有 value；copy 使用 source_node_id/source_property。",
             "必添/不能为空映射 required；提示文字映射 placeholder；长度上限映射 textLengthLimit，不是 maxLength；标签靠左映射 titleAlign，不是 labelAlign；手机号优先内置 formatValidation。",
             "组件和属性能力缺失时必须明确返回 proposal.unsupported，summary 说明哪项需求暂不支持及缺少的目录、属性或处理器，不得根据常见组件经验猜属性。",
+            "组件目录约束本轮请求的新增或修改，不是 currentSchema 所有既有组件的白名单。既有 DepartmentSelect 等组件不在目录时原样保留，不因此拒绝新增已授权的 Input 姓名字段，也不复制或新增部门字段；用户明确只列出姓名时只定义姓名，不擅自补充其他字段。",
             "用户要求禁用时，不能自行生成 disabled、readOnly、edit=false 或 access，也不能把禁止手工编辑当成禁用。没有明确注册且适用于本操作的禁用语义和写入规则，就说明：暂时还不支持禁用，当前没有已声明的禁用属性及写入规则。",
             "例如生成禁用的姓名字段：姓名应使用 Input；如果禁用能力未声明，返回 unsupported，明确姓名可用 Input 但暂时还不支持禁用。本轮不交付忽略禁用要求的可执行提案；不能声称已完成或静默降级。",
             "form.field.define 仅支持声明的七个槽位；宿主目录提供其他属性也不会自动扩展该 IR。任何用户明确要求但此操作无法表达的属性都要说明暂不支持，不能省略后返回 ready。",
