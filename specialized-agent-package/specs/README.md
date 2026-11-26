@@ -50,13 +50,17 @@ form_generation/
 
 对外继续使用 `compile_form_proposal()`。内部通过 `action_rules.validate_action()` 校验动作，通过 `components.get_component_rules(componentName)` 获取已组合的规则；`property_names(componentName)` 提供属性集合。注册表返回的规则用于读取快照、操作语义、校验、模拟和依赖处理，宿主授权仍由属性编排层验证。
 
+## PC 双确认补充
+
+2026-11-25 新增能力协商的 PC 双确认：新建 `shared.form-create-confirm`；已有表单字段/属性混合变更 `shared.form-change-confirm`、`form_change_proposal.v1` / `form_change_actions.v1`。新增 `form_changes` IR 路由；`contracts.py` 管协商，`proposal.py` 管有序混合及重叠拒绝。所有可写路径均要求当前新能力，缺失明确拒绝；属性规则与联动暂不支持。详见[动作规范](./actions.md#2026-11-25-pc-双确认与统一变更)。单一 actions 和宿主复验边界保持不变。
+
 ## 单一动作输出契约与实施边界
 
 最终 output 为 `{form_proposal: proposal}`。修改提案以顶层 `mode/actionVersion/actions` 为唯一执行草稿；每条动作包含 `actionId/action/payload/dependsOn/display`，普通确认的 `presentation` 仅含注册 `kind/title`。属性变更的原状态在 `preconditions.before`，新值仅在 payload；不输出 result、validation、after 或重复字段/属性清单。查询仍是只读 `component_property_query` 的 items，无动作；撤销使用 `component_property_undo` 专用展示及顶层动作。
 
 ai-chat 按 actionId 勾选并直接编辑唯一草稿，提交 `{proposal: 最终已编辑且已选择的提案}`，宿主独立接收 Apply 幂等键。依赖缺选不能静默代选；字段下标相关子集必须复验，只有整批纯新增、显式 root index 连续且可证明独立的序列可重算位置，其他复杂位置子集拒绝。名称、payload、前置条件与错误语义以[动作规范](./actions.md)和[属性规则](./properties.md)为准。
 
-保留既有 protocol、contractVersion、动作名称及模型输入 IR；schemaVersion 是可选画布元数据。此次结构调整不增加旧格式解析、迁移、v1/v2 分流或 FormSchema 版本门禁。平台事件和最终 output 通道沿用真实既有机制。
+protocol、动作名称及模型输入 IR 保持不变；contractVersion 按当前新建、变更或专用查询/撤销契约确定；schemaVersion 是可选画布元数据。此次结构调整不增加旧格式解析、迁移、v1/v2 分流或 FormSchema 版本门禁。平台事件和最终 output 通道沿用真实既有机制。
 
 2026-11-23 指定本地设计器已接入 PC Flow 既有属性处理器的新契约；其他能力仍须逐项核验。**规范存在、本地测试通过或 Agent 返回 ready 均不证明宿主已经部署或具备其他执行能力。**区分以下事实：
 

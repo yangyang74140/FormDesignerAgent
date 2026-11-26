@@ -62,17 +62,23 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 
 例如“生成一个禁用的姓名字段”：姓名可用 `Input`，但没有明确注册的禁用语义及写入规则时，返回“姓名字段可使用 Input，但暂时还不支持禁用，当前没有已声明的禁用属性及写入规则”。不能猜 `disabled/readOnly/edit=false/access` 或用禁止手工编辑替代，也不能忽略禁用后交付 ready。此语义选择通过提示规则和示例约束；确定性校验拦截实际 IR 中的未知属性，真实模型能否完整保留用户要求仍需平台验收。
 
+## PC 双确认（2026-11-25）
+
+本节规定当前唯一可写契约。新建经 supportedPresentationKinds 协商后使用 `shared.form-create-confirm`，保持 `form_agent_proposal.v1`、动作版本 `1.0` 和 `replace_empty_form`，只含 add。已有表单经三项能力协商后统一使用 `form_change_proposal.v1` / `form_change_actions.v1` / `append` / `shared.form-change-confirm`，支持字段动作与既有节点的属性 change 单项或混合；纯 append、纯属性也升级。缺少任何必需能力均明确拒绝，包括纯字段与纯属性路径。
+
+混合输入为 `proposal.begin.result_kind=form_changes`（位于 slots），保持 IR 项目和输出 actions 的相对顺序。未指定位置的新增字段可以与删除已有字段同批，编译器按执行顺序计算追加下标及动作依赖。目标必须含 schemaId/baseRevision，属性还需 catalogVersion。新节点属性由已授权新增 props 表达。聚合与分组由 UI 投影，不增加第二份执行数据。查询与撤销保持独立；属性 rule/linkage 暂无新协议，明确拒绝。完整协商字段、保守冲突限制和真实编译 JSON 见[动作规范](./specs/actions.md#2026-11-25-pc-双确认与统一变更)。不提供旧卡片、旧可写属性包装器、旧字段动作版本或 result 格式兼容。
+
 ## 输出协议
 
-逻辑最终 output 固定为 `{form_proposal: proposal}`，只含一份完整提案，不另包 component 或复制 props.proposal。保留 `protocol=form-agent.v1` 与既有 contractVersion；字段/通用提案为 `form_agent_proposal.v1`，属性修改为 `form_property_proposal.v1`，查询为 `form_property_query.v1`。状态为 ready、needs_clarification、unsupported 或 no_change；非 ready 不带执行动作或可应用确认卡。
+逻辑最终 output 固定为 `{form_proposal: proposal}`，只含一份完整提案，不另包 component 或复制 props.proposal。保留 `protocol=form-agent.v1` 与既有 contractVersion；新建为 `form_agent_proposal.v1`，所有已有表单修改为 `form_change_proposal.v1`，查询为 `form_property_query.v1`。状态为 ready、needs_clarification、unsupported 或 no_change；非 ready 不带执行动作或可应用确认卡。
 
 修改提案的共同结构：
 
 - 顶层 `mode`：完整空白表单为 replace_empty_form，增量为 append；不得覆盖非空画布。
-- 顶层 `actionVersion`：沿用宿主实际声明的动作版本值；属性动作仍为 form_property_actions.v1。顶层 schemaVersion 仅是可选 FormSchema 元数据，不设白名单。
+- 顶层 `actionVersion`：新建固定 1.0，已有表单修改固定 form_change_actions.v1；撤销单独使用 form_property_actions.v1。顶层 schemaVersion 仅是可选 FormSchema 元数据，不设白名单。
 - 顶层 `actions`：每项为 `{actionId,action,payload,dependsOn,display}`，display.selectedByDefault 是布尔值。动作 ID 唯一稳定，依赖使用本批其他 actionId 且无环；引用本批新节点须依赖在前创建动作。
 - 属性变更的 `preconditions.before={exists,value?}` 是原状态；新值只在 payload.value。set/copy 带 value，clear/unset/reset 不带 value，不附 after。可选 display.effects 仅说明派生影响。
-- 普通修改确认的 `presentation` 仅含 kind/title：字段为 shared.table-field-confirm，属性为 shared.component-property-checklist。没有 result、validation，也没有重复的 fields/items/changes 或动作副本。
+- 普通修改确认的 `presentation` 仅含 kind/title：新建为 shared.form-create-confirm，已有表单变更为 shared.form-change-confirm。没有 result、validation，也没有重复的 fields/items/changes 或动作副本。
 
 查询保留 readOnly 的 component_property_query presentation.items，无 actions；撤销保留 component_property_undo 的事务展示与顶层 actions，二者均不进入普通确认卡。完整字段和属性 JSON 示例见[三端接入说明](../doc/ai-chat-property-edit-integration.md)。
 
@@ -170,8 +176,8 @@ ai-chat 从 actions 派生预览并维护唯一草稿。取消或删除新增建
 
 | 结果 | `presentation.kind` | ai-chat 行为 |
 | --- | --- | --- |
-| ready 字段动作 | `shared.table-field-confirm` | 从 actions 派生展示行，按 actionId 勾选并编辑同一草稿 |
-| ready 属性变更 | `shared.component-property-checklist` | 从 payload、preconditions 和 display 派生属性行 |
+| ready 新建 | `shared.form-create-confirm` | 从 actions 派生展示行，按 actionId 勾选并编辑同一草稿 |
+| ready 已有表单变更（字段/属性/混合） | `shared.form-change-confirm` | 从 payload、preconditions 和 display 派生属性行 |
 | 只读查询 | `component_property_query` | 保留 readOnly/items，不提供修改入口 |
 | 事务撤销 | `component_property_undo` | 使用专用撤销入口，不能进入普通确认卡 |
 | 澄清、无变更或失败 | 保留状态与领域语义 | 不渲染可应用确认卡 |
@@ -213,9 +219,9 @@ python3 -B -m unittest discover -s specialized-agent-package/tests -q
 - `property_query`：后接 `form.property.query`，只读输出，不要求写动作版本。
 - `property_undo`：后接 `form.property.undo`（`transaction_id`）；必须提供宿主真实可撤销事务和已声明动作。
 - `property_changes` 还支持 `form.property.rule`（`operation=add/replace/remove`、`rule_type`、`rule_id`、`value`）和 `form.property.linkage`（`operation`、`linkage_type`、`linkage_id`、`value`），目标字段与 change 一致。仅允许宿主已注册的 ruleCatalog/linkageCatalog、结构化 schema 和处理器；没有运行能力时返回 unsupported。
-- 查询产物 form_property_query.v1 的 status=ready，保留 component_property_query 的 readOnly/items，无 actions；撤销保留 component_property_undo 专用展示，顶层 actions 中使用 form.undo_property_transaction，不能交给普通属性处理器。
+- 查询产物 form_property_query.v1 的 status=ready，保留 component_property_query 的 readOnly/items，无 actions；撤销保留 form_property_proposal.v1 / form_property_actions.v1 和 component_property_undo 专用展示，顶层 actions 中使用 form.undo_property_transaction，不能交给普通属性处理器。
 - 属性 change 使用 `node_id` 或 `use_selection=true`，也可使用 `node_label/node_name` 唯一匹配；操作包括 `set/clear/unset/reset/copy`，复制提供 `source_node_id/source_property`。
-- 属性输出保留 form_property_proposal.v1；presentation 仅含 shared.component-property-checklist 的 kind/title。顶层 actionVersion=form_property_actions.v1；form.apply_property_change/rule/linkage 名称和语义不变，before、依赖和派生影响位于对应动作，不附 items 或 after。
+- 属性输出保留 form_change_proposal.v1；presentation 仅含 shared.form-change-confirm 的 kind/title。顶层 actionVersion=form_change_actions.v1；form.apply_property_change 名称和语义不变；属性 rule/linkage 暂时拒绝，before、依赖和派生影响位于对应动作，不附 items 或 after。
 - 读取并保留顶层 `resolvedProperties`、`history`、`rules`、`linkages`；支持直接 context 映射或平台 StepContext。目录 `capabilities.components.<component>.properties`、`catalogVersion`、`nodePolicies` 应与宿主执行器保持一致。
 - 目录需明确每个属性的 `valueSchema`、`operations`、默认/重置语义、复合 handler。未声明能力不生成可执行结果；不存在/歧义目标进入澄清。
 - 宿主负责将语义动作交给属性 helper，执行 revision/before 检查、逐项勾选、事务、撤销和保存；本包不修改真实画布，也不宣称规则服务或保存已经接通。
@@ -244,9 +250,9 @@ python3 package_agent.py
 
 ### 规则、联动和撤销上下文约定
 
-`capabilities.ruleCatalog[rule_type]` 和 `capabilities.linkageCatalog[linkage_type]` 需要提供 `handlerId`、`components`、`operations`、`valueSchema`，联动还需 `astOperators`。节点策略 `allowedProperties` 通过 `rule`、`linkage` 分别授权这些扩展操作。已有配置放在顶层 `rules[nodeId]`、`linkages[nodeId]`，每项为 `{id,type,value}`；删除和替换必须引用真实 ID。
+规则/联动尚无已约定的新可写协议，旧目录和旧动作版本不能授权这些操作。受控属性能力清单仅发布 change/query/undo；收到旧 rule/linkage IR 时明确拒绝。
 
-宿主声明动作 `form.apply_property_rule`、`form.apply_property_linkage`、`form.undo_property_transaction` 时，`supportedActionVersions[动作名]` 必须包含 `form_property_actions.v1`。撤销需要 `history.current` 或平铺 `history` 中的 `{canUndo:true,transactionId,revision}`，与当前 revision 一致。
+属性规则/联动暂不支持。撤销动作 form.undo_property_transaction 继续要求 supportedActionVersions[动作名] 包含 form_property_actions.v1，并要求真实 history.current 或平铺 history 中的 {canUndo:true,transactionId,revision} 与当前 revision 一致。撤销保持 form_property_proposal.v1 专用信封，不是普通属性可写建议。
 
 属性 reset 需要注册 reset 操作。titleAlign/titlePosition 或 `reset.source=inherited` 删除局部覆盖；其他属性优先读取目录 `default`，其次使用已明确的内置默认值。受保存锁保护的属性必须提供真实保存状态，不能因状态缺失当成新字段。
 
@@ -282,10 +288,10 @@ JSON Schema 仅支持编译器已实现的受控子集，未实现关键字（�
 | 输出字段 | 含义 | 选择规则 |
 | --- | --- | --- |
 | proposal.schemaVersion | 可选画布 Schema 元数据 | 原样保留宿主值，不设版本白名单 |
-| proposal.contractVersion | 本轮提案契约 | 字段生成用 `form_agent_proposal.v1`，属性修改用 `form_property_proposal.v1` |
+| proposal.contractVersion | 本轮提案契约 | 字段生成用 `form_agent_proposal.v1`，属性修改用 `form_change_proposal.v1` |
 | proposal.actionVersion | 本批动作协议 | 只从本批实际动作的版本集合协商，禁止借用其他动作版本 |
 
-例如 context 同时包含 `form.add_component:["1.0"]` 和 `form.apply_property_change:["form_property_actions.v1"]`：字段生成返回动作版本 `1.0`，属性修改返回 `form_property_actions.v1`。旧增量批次包含多个动作时，必须有共同版本，否则拒绝。继续兼容旧宿主全局版本列表/布尔版本表；旧增量协议可选集合为 `1.0`、`form_actions.v1`、`form_actions.v2`，未知版本不会因字符串排序较大就被采用。
+新建仅接受明确声明的 1.0；变更仅接受三项协商后的 form_change_actions.v1。capabilities.supportedActionVersions 存在时优先，显式空值不回退；仅该键缺省才读取 context 顶层。旧字段版本及旧属性写动作版本不能授权当前可写提案。
 
 ### 新增组件白名单
 

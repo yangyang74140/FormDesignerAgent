@@ -9,7 +9,7 @@
 Agent 依据宿主真实上下文生成建议；ai-chat 展示并维护用户确认草稿；设计器宿主校验并应用到画布，保存另行处理。
 
 - 表单设计器 Agent（`specialized-agent-package/`）：负责受控生成、编译、校验和插件打包。
-- ai-chat：负责 `shared.table-field-confirm` 等注册组件及用户编辑、勾选、提交。
+- ai-chat：负责 `shared.form-change-confirm` 等注册组件及用户编辑、勾选、提交。
 - 表单设计器宿主：负责实际组件能力、节点身份、修订检查、原子应用、撤销和保存。
 - 跨项目修改前，先读取目标项目自己的 `AGENTS.md` 与相关规约；本文件不替代其他项目的约束。
 
@@ -46,6 +46,7 @@ Agent 依据宿主真实上下文生成建议；ai-chat 展示并维护用户确
 | `doc/ai-chat-property-edit-integration.md` | 本项目维护的 Agent、ai-chat、设计器三端接入说明及待办 | 涉及跨端输出、确认、属性修改和应用回执时读取；历史待办不代表功能已部署 |
 | `doc/component-property-inventory.md` | 七类组件的属性、类型、默认值、复杂结构和宿主能力核验记录 | 设计属性动作或核对可写配置时读取；“建议”与“已实现”必须区分 |
 | `doc/property-context.example.json` | 属性场景的宿主输入示例 | 理解 context 时按需对照，不包含全部通用规则 |
+| `doc/property-ir.example.json` | 属性样例的受控输入 IR | 与 context/proposal 一起由测试复现 |
 | `doc/property-proposal.example.json` | 属性场景的输出示例 | 对照实际契约使用；示例不是独立规范，也不能替代校验器 |
 
 ## 4. 文档权威范围
@@ -64,15 +65,23 @@ Agent 依据宿主真实上下文生成建议；ai-chat 展示并维护用户确
 
 - 最终 output 固定为 `{form_proposal: proposal}`；保留既有 `protocol/contractVersion`，`schemaVersion` 只作可选画布元数据。修改提案的 `mode/actionVersion/actions` 均位于 proposal 顶层，不再输出 `result`、`validation` 或重复字段/变更清单。
 - 每条动作为 `{actionId, action, payload, dependsOn, display}`；`dependsOn` 是 actionId 数组，`display.selectedByDefault` 为布尔值。属性变更另有 `preconditions.before={exists,value?}`；原状态只保留在此处，新值只保留在 payload。可选 `display.effects` 仅解释派生影响，不复制目标新值或执行指令。
-- 普通修改确认的 presentation 仅含 `kind/title`：字段使用 `shared.table-field-confirm`，属性使用 `shared.component-property-checklist`。只读 `component_property_query` 保留 `readOnly/items` 且不含动作；`component_property_undo` 保留专用撤销展示，动作仍在顶层，不转普通确认卡。
-- 保留现有表单动作名称和语义，包括组件生命周期动作及 `form.apply_property_change/rule/linkage`、`form.undo_property_transaction`；不另造同义名，不混用页面动作。模型输入 IR 不因输出调整而变化。
+- 普通修改确认的 presentation 仅含 `kind/title`：新建使用 `shared.form-create-confirm`；已有表单的字段、属性和混合变更使用 `shared.form-change-confirm`。只读 `component_property_query` 保留 `readOnly/items` 且不含动作；`component_property_undo` 保留专用撤销展示，动作仍在顶层，不转普通确认卡。
+- 保留现有表单动作名称和语义，包括组件生命周期动作及 `form.apply_property_change`、`form.undo_property_transaction`；不另造同义名，不混用页面动作。模型输入 IR 不因输出调整而变化。
 - `set/copy` 的新值位于 payload.value；`clear/unset/reset` 不带 value，具体语义由已支持的组件规则与宿主处理器决定。不能附加 after 或第二份目标新值。
 - ai-chat 编辑唯一 actions 草稿，以 actionId 勾选，提交 `{proposal: 最终已编辑且已选择的提案}`；Apply 幂等键经宿主独立通道传递。不提交选择 ID 数组、edits 或另一份原始载荷；clientRef 仅是新节点身份，不是复选框 ID。
 - 动作顺序确定，dependsOn 引用本批其他动作且不得成环；引用本批新节点时必须依赖在前创建动作。用户缺选依赖时明确阻止，不静默代选。下标相关子集须重新验证；仅可对整批纯新增、显式 root index 连续且可证明独立的序列重算位置；其他复杂位置或无法保证语义的子集拒绝应用。
 - 字段编译器输出明确 root index，保留插入顺序。原始动作省略 root index 表示物理根列表末尾；字段 IR 默认追加则是最后一个字段之后、末尾非字段之前，两者不能混同。
 - 删除未应用建议只移除草稿动作，并复验引用与顺序；删除已有画布节点须使用受支持的 `form.remove_component`。类型转换和完整候选校验交给已支持处理器，缺少能力明确拒绝。
 - 生成时校验不授权用户编辑后的草稿。宿主仍须复验固定目标、revision、能力、before、依赖、引用、顺序与最终候选状态，原子应用并执行独立 Apply 幂等、撤销和保存分离。
-- 尚未正式使用，不兼容旧输出、不维护双格式解析或迁移，不因这次结构调整新增 v1/v2 分流或 FormSchema 版本门禁；真实平台事件名和最终 output 通道保持不变。
+- 不兼容旧输出、不维护双格式解析或迁移，不新增 FormSchema 版本门禁；真实平台事件名和最终 output 通道保持不变。
+
+### 2026-11-25 PC 双确认补充契约
+
+本节规定当前唯一可写契约。已协商的新建使用 `form_agent_proposal.v1` / `1.0`、`replace_empty_form`、`shared.form-create-confirm`，仅纯新增。已有表单变更使用 `form_change_proposal.v1` / `form_change_actions.v1`、`append`、`shared.form-change-confirm`，actions 仍是唯一草稿，不改变动作 payload、before、dependsOn 或 display。
+
+统一变更需同时声明 `capabilities.supportedProposalContracts` 包含新契约、`capabilities.supportedPresentationKinds` 包含新 kind、`capabilities.supportedActionVersions` 包含新动作版本（该键缺省才回退 context 顶层同名声明，显式空值不回退）；新建 kind 单独通过 supportedPresentationKinds 协商，新增动作仍需 1.0 授权。缺少任何必需能力时返回 unsupported，不回退旧契约、旧卡片或旧动作版本。查询与撤销保持独立专用路径；属性 rule/linkage 尚无已约定的新可写协议，明确拒绝。
+
+新 IR `result_kind=form_changes` 支持既有字段动作及 `form.property.change`，保留动作相对顺序。统一变更要求 schemaId/baseRevision，formId 适用时保留，含属性才要求 catalogVersion；属性仅定位既有节点，新节点属性在已授权新增 props 中表达。同字段聚合和分组仅是 UI 投影，不复制执行清单或重排动作。不能证明安全的重叠整批拒绝，规则与样例见包内动作规范和三端接入说明。
 
 ## 6. 按任务阅读与验证
 

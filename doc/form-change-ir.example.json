@@ -1,0 +1,47 @@
+{
+  "plan_items": [
+    {
+      "capability": "proposal.begin",
+      "slots": {
+        "summary": "新增备注、修改提示并删除旧字段",
+        "title": "表单变更",
+        "result_kind": "form_changes",
+        "mode": "append"
+      }
+    },
+    {
+      "capability": "form.add_component",
+      "slots": {
+        "payload": {
+          "clientRef": "new-note",
+          "componentName": "Input",
+          "props": {
+            "label": "备注",
+            "name": "new_note"
+          },
+          "target": {
+            "kind": "root",
+            "index": 2
+          }
+        }
+      }
+    },
+    {
+      "capability": "form.property.change",
+      "slots": {
+        "node_id": "a",
+        "property": "placeholder",
+        "operation": "set",
+        "value": "新"
+      }
+    },
+    {
+      "capability": "form.remove_component",
+      "slots": {
+        "payload": {
+          "nodeId": "b"
+        }
+      }
+    }
+  ]
+}

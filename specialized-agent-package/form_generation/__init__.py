@@ -1,4 +1,4 @@
-"""Production proposal compiler plus unregistered legacy compatibility helpers."""
+"""Production proposal compiler for the current form confirmation contracts."""
 
 from .proposal import (
     ACTION_KINDS,

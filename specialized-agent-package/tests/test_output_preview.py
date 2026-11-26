@@ -182,7 +182,7 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         context.native_capability = SimpleNamespace(generate=generate)
         result = await self.agent.generate_form_proposal(context)
         proposal = result["output"]["form_proposal"]
-        self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
+        self.assertEqual(proposal["presentation"]["kind"], "shared.form-create-confirm")
         self.assertEqual(set(result["output"]), {"form_proposal"})
         self.assertEqual(json.dumps(result["output"]).count('"proposalId"'), 1)
         self.assertNotIn("component", proposal)
@@ -204,7 +204,7 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(proposal["schemaVersion"], "1.1.0")
         self.assertEqual(proposal["status"], "ready")
         self.assertEqual(proposal["mode"], "replace_empty_form")
-        self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
+        self.assertEqual(proposal["presentation"]["kind"], "shared.form-create-confirm")
         assert_action_draft(self, proposal)
         self.assertEqual([action["payload"]["clientRef"] for action in proposal["actions"]],
                          ["employee-name", "hire-date"])
@@ -240,7 +240,7 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsInstance(result, dict)
                 self.assertEqual(result["status"], "completed")
                 proposal = result["output"]["form_proposal"]
-                self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
+                self.assertEqual(proposal["presentation"]["kind"], "shared.form-create-confirm")
                 assert_action_draft(self, proposal)
                 self.assertEqual(len(proposal["actions"]), 2)
                 self.assertNotIn("component", result["output"])
@@ -299,7 +299,7 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(proposal["actions"][2]["payload"]["props"]["options"][0],
                          {"label": "正式员工", "value": "regular"})
         self.assertEqual(proposal["actions"][2]["payload"]["props"]["options"][1]["value"], "intern")
-        self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
+        self.assertEqual(proposal["presentation"]["kind"], "shared.form-create-confirm")
         self.assertEqual(proposal["presentation"]["title"], "员工入职登记表")
         self.assertEqual(len(proposal["actions"]), 3)
         self.assertEqual(set(result["output"]), {"form_proposal"})
@@ -404,7 +404,7 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         proposal = result["output"]["form_proposal"]
         refs = [ref for ref, _, _ in definitions]
         self.assertEqual([action["payload"]["clientRef"] for action in proposal["actions"]], refs)
-        self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
+        self.assertEqual(proposal["presentation"]["kind"], "shared.form-create-confirm")
         assert_action_draft(self, proposal)
         self.assertEqual(len(proposal["actions"]), 8)
         self.assertEqual([action["payload"]["props"]["label"] for action in proposal["actions"]],

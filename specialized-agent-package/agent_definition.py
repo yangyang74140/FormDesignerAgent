@@ -21,6 +21,7 @@ from .form_generation.proposal import (
     normalize_host_context,
     proposal_capabilities,
 )
+from .form_generation.contracts import change_enabled
 
 def _step_result(result: Any) -> Any:
     if isinstance(result, Mapping):
@@ -69,7 +70,7 @@ def compile_platform_proposal(ir_payload: Any, context: Any) -> dict[str, Any]:
             and str(item["slots"].get("result_kind", "")).startswith("property_")
             for item in items
         )
-        required_context = ("currentSchema", "capabilities") if property_request else (
+        required_context = ("currentSchema", "capabilities") if property_request or change_enabled(host) else (
             "currentSchema", "capabilities", "supportedActionVersions"
         )
         missing = [key for key in required_context if not host.get(key)]
@@ -212,9 +213,12 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
             "每个歧义组={field:字段0起始下标,slot:类别,reason:真实歧义原因,options:[{label:最终结果短标签,patch:结构化槽位补丁}]}。类别独立：semantics 在语义未定时给出完整 label/name/component_name 以及有依据的 required/placeholder/options；仅称谓歧义可只改 label/name。control 只改 component_name；validation 只改 required；data_source 只改静态 options；properties 只改 placeholder。完整语义候选不能与同字段其他组重复写属性。跨控件残余属性必须通过 patch.unset 显式列出 required/placeholder/options，不能静默清除用户约束；没有用户依据不得清除。不得修改client_ref或增加未知键。基线fields必须可编译，候选只是待确认预填，不表示已接受。",
             "推荐按语境提供3至5个真实可用结果，不足则如实少给或为空；最多20个冻结备选供换一组。label不以选择/设置/配置开头，尽量12至16字且可更短。自定义、保留当前值、重新生成和回退由Agent处理，不生成这些推荐。不根据手机号等名称猜必填、11位、正则或数据源；明确要求不能由这七个字段槽位表达时返回unsupported，不通过引导静默省略。静态options只使用用户或真实宿主提供的label/value；不把动态数据源伪装为静态选项。",
             "目标或属性歧义继续使用 question 和可选 choices；候选只引用真实快照与已支持语义，不为了凑四项虚构目标或能力。宿主上下文缺失不是业务场景缺失，不向用户询问 revision、节点 ID 或能力目录。",
+            "宿主 capabilities.supportedProposalContracts 包含 form_change_proposal.v1、supportedPresentationKinds 包含 shared.form-change-confirm 且 capabilities.supportedActionVersions（缺省时读取 context 顶层同名声明）包含 form_change_actions.v1 时，已有表单的混合修改使用 result_kind=form_changes、mode=append；按用户请求顺序交错 form.field.define、既有 form.* 字段动作和 form.property.change。已有表单的纯字段或纯属性修改也编译为统一变更契约；空白新建使用独立的新建契约。",
+            "未协商必需的新能力时所有可写路径必须明确 unsupported，不能回退旧卡片或版本、拆批或忽略部分需求。统一变更仅对既有节点使用属性动作；新字段属性只放在已授权的新增 props 中，字段 IR 仍仅支持已声明槽位。查询和撤销维持独立专用路径；属性 rule/linkage 暂无新协议，必须明确 unsupported。",
             "新建完整表单必须使用 plan_items：第一项是 proposal.begin，result_kind=form_fields、mode=replace_empty_form；后续为全部字段各一条 form.field.define。",
             "已有画布只新增字段时，第一项为 proposal.begin，result_kind=form_fields、mode=append；后续仅定义新增的 form.field.define，不重生成已有字段。",
-            "append 默认插入 currentSchema.fields 中最后一个 componentCategory=field（缺省视为 field）的组件之后；不指定位置时省略 target。",
+            "append 不指定位置时省略 target，默认在最后一个字段后、尾部非字段组件前追加。混合批次只包含默认追加、删除和互不冲突的属性修改时，用 form_changes 在同一批生成动作，编译器按动作顺序计算位置。用户未指定位置不需要追问。",
+            "用户要求修改已有字段的显示名称时更新 label，保留业务字段 name。新增类似「兴趣」的自由填写内容且未指定类型时，可使用宿主已授权的 Input。",
             "在 XX 后/前新增字段时，在 proposal.begin.slots.target 使用 kind=relative、position=after/before，并从 currentSchema 读取 anchorNodeId；也可传原样 anchorLabel 或 anchorName，由编译器唯一匹配。当前字段使用 useSelection=true。",
             "相同锚点的一批新字段按用户描述顺序定义，由编译器计算连续插入下标，不能重复定义已有字段。目标不存在、重名或选择为空时必须澄清，不默认改为末尾追加。",
             "七类组件的属性编辑统一使用 proposal.begin result_kind=property_changes + form.property.change；查询用 property_query + form.property.query；撤销用 property_undo + form.property.undo。属性复制通过 change.operation=copy，不直接复制身份信息。新旧路径不得混用。",

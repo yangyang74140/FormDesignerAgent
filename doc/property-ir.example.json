@@ -1,0 +1,29 @@
+{
+  "plan_items": [
+    {
+      "capability": "proposal.begin",
+      "slots": {
+        "summary": "设置必填和占位提示",
+        "result_kind": "property_changes"
+      }
+    },
+    {
+      "capability": "form.property.change",
+      "slots": {
+        "node_id": "field-example",
+        "property": "required",
+        "operation": "set",
+        "value": true
+      }
+    },
+    {
+      "capability": "form.property.change",
+      "slots": {
+        "node_id": "field-example",
+        "property": "placeholder",
+        "operation": "set",
+        "value": "请输入申请说明"
+      }
+    }
+  ]
+}

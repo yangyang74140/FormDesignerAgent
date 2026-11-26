@@ -4,11 +4,21 @@
 
 **Agent 与 ai-chat 使用单一 actions 草稿；ai-chat 支持真实 context 中的 formDraftCapabilities、属性 bridge.apply({proposal, applyRequestId}) 和 appliedActionIds 回执，不需要 register。2026-11-23 属性回执修复已将用户指定的本地设计器接入这一契约：仅 PC Flow 已支持的属性处理器，应用时复验最终草稿并原子提交；不表示已部署，也不开放未实现的查询卡、撤销卡、规则、联动或复制。** 下列清单是完整接入和验收要求，未勾选项不表示某项目最新代码一定未实现，亦不构成部署证明。
 
-最终 output 只有 `{form_proposal: proposal}`。修改提案的顶层 actions 是唯一业务草稿，普通确认 presentation 只有 kind/title；用户编辑并勾选后提交 `{proposal: 最终提案}`。保留既有 protocol、contractVersion、动作名称和输入 IR，不提供旧格式兼容、双格式解析、迁移或本次结构的 v1/v2 门禁；schemaVersion 是可选画布元数据。
+最终 output 只有 `{form_proposal: proposal}`。修改提案的顶层 actions 是唯一业务草稿，普通确认 presentation 只有 kind/title；用户编辑并勾选后提交 `{proposal: 最终提案}`。protocol、动作名称和输入 IR 保持不变；contractVersion 按当前场景确定，不提供旧格式兼容、双格式解析、迁移或本次结构的 v1/v2 门禁；schemaVersion 是可选画布元数据。
 
 实际输入见 [property-context.example.json](./property-context.example.json)，支持范围见 [Agent README](../specialized-agent-package/README.md)，业务规则见[动作规范](../specialized-agent-package/specs/actions.md)、[属性规则](../specialized-agent-package/specs/properties.md)和[组件目录](../specialized-agent-package/specs/components/README.md)。[属性清单](./component-property-inventory.md)保留宿主源码核验依据和待办，实施时须结合最新源码复核。
 
 组件目录缺失、空可写属性、未知属性或处理器缺失必须明确拒绝，summary/diagnostics 说明原因，不交付部分动作。例如未声明禁用语义时说明“姓名可使用 Input，但暂时还不支持禁用”，不得猜 disabled/readOnly 或用权限配置替代，也不能忽略用户要求后返回 ready。真实模型的语义识别与平台事件透传仍需验收。
+
+## 2026-11-25 PC 双确认接入补充
+
+本节规定当前唯一可写契约。能力协商后的新建输出 `form_agent_proposal.v1` / `1.0` / `replace_empty_form` / `shared.form-create-confirm`，只接受纯新增。已有表单变更输出 `form_change_proposal.v1` / `form_change_actions.v1` / `append` / `shared.form-change-confirm`，支持既有字段动作和 form.apply_property_change；属性动作只定位已有节点。新节点属性由合法新增 props 表达。
+
+宿主 context 提供 `capabilities.supportedProposalContracts:["form_change_proposal.v1"]`、`capabilities.supportedPresentationKinds:["shared.form-create-confirm","shared.form-change-confirm"]`、`capabilities.supportedActionVersions:["form_change_actions.v1"]`（该键缺省才读取 context 顶层同名声明；显式空值不回退，新建需要在实际生效的版本声明中包含 1.0）。变更需三项同时授权，新建只协商展示 kind 并复验新增 1.0。缺少新能力时所有可写路径明确拒绝，不回退旧纯路径与旧注册组件。target.schemaId/baseRevision 必需，formId 适用时保留；仅含属性时要求 catalogVersion。query/undo 继续走独立专用路径；属性 rule/linkage 尚无新协议，明确拒绝。
+
+UI 按同一节点聚合多个 actionId，分组按需显示；编辑、选择和删除建议始终作用于唯一 actions 草稿，展示次序不改变执行次序。一次提交 `{proposal}`，独立 applyRequestId，一次原子应用和撤销帧；不能拆成两次 bridge.apply。SDK/宿主需要识别新增契约与版本并对完整批次复验，Agent 本地测试不代表外仓已接通。
+
+Agent 支持默认追加字段 IR 与删除已有节点同批，由编译器按顺序计算追加位置及动作依赖。其他无法确定位置的结构混合、同节点生命周期与修改重叠、重复语义属性和不安全的跨字段交叉仍会被拒绝。完整限制见[动作规范](../specialized-agent-package/specs/actions.md)。真实编译样例：[混合提案](./form-change-proposal.example.json)、[对应上下文](./form-change-context.example.json)、[对应 IR](./form-change-ir.example.json)、[新建提案](./form-create-proposal.example.json)。纯属性样例为 [上下文](./property-context.example.json)、[IR](./property-ir.example.json)、[提案](./property-proposal.example.json)；新建对应 [上下文](./form-create-context.example.json) 和 [IR](./form-create-ir.example.json)。三组提案均由当前编译器复现验证，不解析旧 result 嵌套结构。
 
 ## 1. 目标和范围
 
@@ -19,9 +29,9 @@
 能力范围：
 
 - 修改、查询、清空属性，恢复默认或继承。
-- 新增、修改、删除受支持的校验规则。
+- 属性规则新增、修改和删除暂不支持，返回 unsupported。
 - 复制指定属性到兼容组件。
-- 条件显隐等宿主已注册联动。
+- 属性联动暂不支持，返回 unsupported。
 - 撤销一次明确的应用事务。
 - 兼容同义词、口语和常见错别字；目标或语义不明确时追问。
 
@@ -57,15 +67,15 @@ flowchart TD
 | 位置 | 约束 |
 | --- | --- |
 | proposal 顶层 | mode、actionVersion、actions；保留 proposalId、requestId、target、summary 等元数据，schemaVersion 可选 |
-| 普通修改 presentation | 仅 kind/title；字段使用 shared.table-field-confirm，属性使用 shared.component-property-checklist |
+| 普通修改 presentation | 仅 kind/title；新建使用 shared.form-create-confirm，已有表单变更使用 shared.form-change-confirm |
 | 每条 action | actionId、action、payload、dependsOn: actionId[]、display.selectedByDefault: boolean |
 | 属性变更前置条件 | preconditions.before={exists,value?}，从生成快照读取；exists=false 不带 value |
 | 派生说明 | 可选 display.effects: string[]；仅解释处理器派生影响，不携带新值副本或执行表达式 |
-| 目标新值 | set/copy 只在 payload.value；clear/unset/reset 无 value，规则与联动沿用既有载荷语义 |
+| 目标新值 | set/copy 只在 payload.value；clear/unset/reset 无 value，属性规则与联动暂不支持 |
 
 修改产物没有 result、validation、after 或重复 fields/items/changes；update 动作内部既有 payload.changes 属性映射不受此限制。before 是原状态而非新值副本，存储键缺失与 false/null/0/空字符串必须区分。
 
-只读查询是例外：保留 form_property_query.v1、component_property_query 的 readOnly/items，无 actions，不要求写动作版本。撤销也是专用路径：component_property_undo 保留真实 transactionId/canUndo，执行动作 form.undo_property_transaction 位于顶层 actions，不进入普通确认卡。因此修改确认的 kind/title 限制不覆盖查询和撤销。
+只读查询是例外：保留 form_property_query.v1、component_property_query 的 readOnly/items，无 actions，不要求写动作版本。撤销也是专用路径：component_property_undo 保留专用 form_property_proposal.v1 / form_property_actions.v1 及真实 transactionId/canUndo，执行动作 form.undo_property_transaction 位于顶层 actions，不进入普通确认卡。因此修改确认的 kind/title 限制不覆盖查询和撤销。
 
 完整 JSON、ready、有效领域契约、匹配 kind、已注册且被业务白名单允许必须同时满足，才可展示对应确认卡；未知、无效或错配 kind 拒绝，不尝试其他卡片兜底。非 ready、只读查询和撤销不因设置 kind 获得普通应用资格。此次不解析旧 kind、显式 component 或旧嵌套动作格式。append 表示增量应用，不表示把卡片或字段列表追加到旧列表。
 
@@ -250,20 +260,20 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
 
 ### 7.1 字段新增
 
-在当前根列表第 2 个下标插入“监护人”，保留已有组件。actionVersion 的 `1.0` 是示例宿主已声明的值，生产使用真实支持版本，不新增契约版本门禁。
+在当前根列表第 2 个下标插入“监护人”，保留已有组件。已有表单变更必须协商 form_change_actions.v1；schemaVersion 仍仅是画布元数据。
 
 ```json
 {
   "form_proposal": {
     "protocol": "form-agent.v1",
-    "contractVersion": "form_agent_proposal.v1",
+    "contractVersion": "form_change_proposal.v1",
     "proposalId": "proposal-field-001",
     "requestId": "request-field-001",
     "status": "ready",
     "target": {"schemaId": "form-example", "baseRevision": "rev-10"},
     "summary": "在学号后新增监护人。",
     "mode": "append",
-    "actionVersion": "1.0",
+    "actionVersion": "form_change_actions.v1",
     "actions": [
       {
         "actionId": "add-field-001",
@@ -278,14 +288,14 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
         "display": {"selectedByDefault": true}
       }
     ],
-    "presentation": {"kind": "shared.table-field-confirm", "title": "新增字段建议"}
+    "presentation": {"kind": "shared.form-change-confirm", "title": "新增字段建议"}
   }
 }
 ```
 
 动作顺序确定。字段 IR 默认追加由编译器转成明确 root index，位置为最后字段之后、尾部非字段之前；原始 root 动作无 index 才是物理根列表末尾。多个新增按执行后列表下标递增，不能重复同一锚点导致顺序颠倒。
 
-删除已有字段也使用 `shared.table-field-confirm`：Agent 输出默认选中的 `form.remove_component` 动作，消费端按固定节点 ID 读取真实快照展示名称和类型，纯删除卡仅提供“删除”。取消勾选或显示卡片不改画布，点击后仅提交所选 actions；宿主复验并原子删除，成功回执提示未保存并支持撤销。当前本地设计器处理器仅开放已注册的普通顶层字段，拒绝系统字段、容器、失效/歧义目标及最终候选中的业务引用，并清理 Flow/Grid 画布位置、草稿和失效选中态。此说明不代表已部署到平台。
+删除已有字段也使用 `shared.form-change-confirm`：Agent 输出默认选中的 `form.remove_component` 动作，消费端按固定节点 ID 读取真实快照展示名称和类型，纯删除卡仅提供“删除”。取消勾选或显示卡片不改画布，点击后仅提交所选 actions；宿主复验并原子删除，成功回执提示未保存并支持撤销。当前本地设计器处理器仅开放已注册的普通顶层字段，拒绝系统字段、容器、失效/歧义目标及最终候选中的业务引用，并清理 Flow/Grid 画布位置、草稿和失效选中态。此说明不代表已部署到平台。
 
 引用本批新节点的后续受支持动作，dependsOn 必须包含创建动作 actionId，clientRef 不作为勾选 ID。取消创建动作后不可静默保留其依赖。整批纯新增且显式 root index 连续为 2、3 时只选后者，须证明序列独立再重算为 2；混有其他位置/引用影响、复杂位置或无法证明时拒绝该子集并要求重生成。删除建议是改草稿，删除已有画布节点是 form.remove_component，两者不能混用。
 
@@ -297,7 +307,7 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
 {
   "form_proposal": {
     "protocol": "form-agent.v1",
-    "contractVersion": "form_property_proposal.v1",
+    "contractVersion": "form_change_proposal.v1",
     "schemaVersion": "1.1.0",
     "catalogVersion": "component-properties.v1",
     "proposalId": "proposal-property-001",
@@ -306,7 +316,7 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
     "target": {"schemaId": "form-example", "baseRevision": "rev-10"},
     "summary": "调整申请说明字段的属性。",
     "mode": "append",
-    "actionVersion": "form_property_actions.v1",
+    "actionVersion": "form_change_actions.v1",
     "actions": [
       {
         "actionId": "action-placeholder",
@@ -331,14 +341,14 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
         "display": {"selectedByDefault": false, "effects": ["有效对齐方式由表单配置决定"]}
       }
     ],
-    "presentation": {"kind": "shared.component-property-checklist", "title": "属性修改建议"}
+    "presentation": {"kind": "shared.form-change-confirm", "title": "属性修改建议"}
   }
 }
 ```
 
 ### 7.3 共同约束
 
-- schemaVersion 只作可选画布元数据；actionVersion 才是动作版本。字段/通用、属性修改、只读查询分别保留既有 contractVersion，不引入旧新结构双解析。
+- schemaVersion 只作可选画布元数据；actionVersion 才是动作版本。新建使用 form_agent_proposal.v1，已有表单字段/属性修改使用 form_change_proposal.v1，只读查询使用 form_property_query.v1，不引入旧新结构双解析。
 - 每行对应一个完整语义动作，以 actionId 勾选；复合语义的底层联动效果封装在处理器内，不另生成叶子动作或展示 items。
 - dependsOn 引用本批其他 actionId，唯一且无环；引用本批新节点须依赖在前创建动作。任何选择/编辑后都复验依赖、引用、顺序及最终候选，不静默补选依赖。
 - preconditions.before 表示原语义存储状态，exists=false 无 value；继承有效值与本地覆盖分开解析。copy 的来源身份、权限、来源快照也需复验，payload.value 是唯一拟写入值。
@@ -376,7 +386,7 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
 {
   "proposal": {
     "protocol": "form-agent.v1",
-    "contractVersion": "form_property_proposal.v1",
+    "contractVersion": "form_change_proposal.v1",
     "schemaVersion": "1.1.0",
     "catalogVersion": "component-properties.v1",
     "proposalId": "proposal-property-001",
@@ -385,7 +395,7 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
     "target": {"schemaId": "form-example", "baseRevision": "rev-10"},
     "summary": "调整申请说明字段的属性。",
     "mode": "append",
-    "actionVersion": "form_property_actions.v1",
+    "actionVersion": "form_change_actions.v1",
     "actions": [
       {
         "actionId": "action-placeholder",
@@ -399,7 +409,7 @@ clear/unset/reset 不携带 value。标题不能清空；已有字段 name 不�
         "display": {"selectedByDefault": true}
       }
     ],
-    "presentation": {"kind": "shared.component-property-checklist", "title": "属性修改建议"}
+    "presentation": {"kind": "shared.form-change-confirm", "title": "属性修改建议"}
   }
 }
 ```
@@ -506,7 +516,7 @@ actualChanges 是宿主计算的实际差异；未改变的路径可以省略。
 
 ## 14. Agent 升级后设计器的维护流程
 
-Agent、ai-chat、宿主分别升级，不能用 Agent 包版本替代能力协商。当前 Agent 1.2.13 保留 `form_property_proposal.v1` / `form_property_actions.v1`，将真实宿主成组语义与 stored 快照修复整合到单一 actions 草稿契约。
+Agent、ai-chat、宿主分别升级，不能用 Agent 包版本替代能力协商。所有已有表单修改使用 form_change_proposal.v1 / form_change_actions.v1；保留成组属性语义与 stored 快照校验，不再输出旧可写契约。
 
 | 更新内容 | 设计器需要做什么 | ai-chat 需要做什么 |
 | --- | --- | --- |
@@ -523,7 +533,7 @@ Agent、ai-chat、宿主分别升级，不能用 Agent 包版本替代能力协�
 3. 人类说明与机器条件分开：中文条件说明使用 `conditionDescriptions`，`conditions` 只允许依赖映射，不能把说明数组送给 Python 编译器当条件。
 4. 更新 Agent 包并发布到目标平台；若 ai-chat 公共 API 变化，设计器必须安装含实际运行代码与类型的新 SDK，不能只强制断言类型。
 5. 本地联调允许使用工作区内 vendor tarball 和 file 依赖；这不是 Registry 发布。正式部署若采用公司 Registry，发布已验证版本后再替换依赖引用并更新锁文件。
-6. 自动验证真实 context → 生产 Python 编译器 → 完整流式事件 → 卡片勾选 → 真实 Store/回执 → 下一轮新 context；至少包含手工编辑冲突、重复应用、未勾选不改、clear/reset/unset、撤销及旧新增字段路径。
+6. 自动验证真实 context → 生产 Python 编译器 → 完整流式事件 → 卡片勾选 → 真实 Store/回执 → 下一轮新 context；至少包含手工编辑冲突、重复应用、未勾选不改、clear/reset/unset、撤销及新建字段路径。
 7. 单独验证保存回读；`applied + unsaved=true` 不能显示“已保存”。更新宿主能力目录和版本后，旧提案必须重新检查 revision、目录与前置状态。
 
 不支持的 Grid、移动端、独立规则或外部服务应保持不支持；不要为了兼容新 Agent 提示词而直接扩充白名单。
@@ -531,4 +541,4 @@ Agent、ai-chat、宿主分别升级，不能用 Agent 包版本替代能力协�
 
 ### 动作版本隔离
 
-Agent 已修复同一上下文声明字段生成与属性编辑时的动作版本混选。`form_fields` 仅读取 `form.add_component` 的可用版本；通用增量批次使用所有实际动作的版本交集；属性动作仍要求精确 `form_property_actions.v1`。动作版本在 proposal.actionVersion，画布 schemaVersion 仅为原样保留的可选元数据，不设白名单，不能把动作版本当作画布版本。
+新建固定使用已授权的 1.0；已有表单变更固定使用三项能力协商后的 form_change_actions.v1。撤销保留独立 form_property_actions.v1 授权。capabilities 的版本键存在时优先且空值不回退，缺省才读 context 顶层。schemaVersion 仅是可选画布元数据。

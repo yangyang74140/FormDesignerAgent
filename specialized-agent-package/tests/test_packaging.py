@@ -119,7 +119,7 @@ class PackagingTests(unittest.TestCase):
                 self.assertEqual(result["status"], "completed", result)
                 proposal = result["output"]["form_proposal"]
                 self.assertEqual(set(result["output"]), {"form_proposal"})
-                self.assertEqual(proposal["presentation"]["kind"], "shared.table-field-confirm")
+                self.assertEqual(proposal["presentation"]["kind"], "shared.form-create-confirm")
                 assert_action_draft(self, proposal)
                 self.assertEqual(len(proposal["actions"]), 1)
                 self.assertEqual(proposal["actions"][0]["payload"]["clientRef"], "student_no")
@@ -128,6 +128,9 @@ class PackagingTests(unittest.TestCase):
                     "target": {"schemaId": "form-1", "revision": "rev-1"},
                     "currentSchema": {"fields": [{"id": "reason", "componentName": "Input", "props": {"label": "事由"}}]},
                     "capabilities": {
+                        "supportedProposalContracts": ["form_change_proposal.v1"],
+                        "supportedPresentationKinds": ["shared.form-change-confirm"],
+                        "supportedActionVersions": ["form_change_actions.v1"],
                         "catalogVersion": "test-catalog",
                         "components": {"Input": {"properties": {"required": {
                             "operations": ["set"], "valueSchema": {"type": "boolean"},
@@ -143,7 +146,7 @@ class PackagingTests(unittest.TestCase):
                     }},
                 ]}, property_context)["output"]["form_proposal"]
                 self.assertEqual(property_result["status"], "ready", property_result)
-                assert_action_draft(self, property_result, "shared.component-property-checklist", property_actions=True)
+                assert_action_draft(self, property_result, "shared.form-change-confirm", property_actions=True)
                 self.assertEqual(len(property_result["actions"]), 1)
                 self.assertEqual(property_result["actions"][0]["payload"]["value"], True)
                 packages.append(bootstrap)

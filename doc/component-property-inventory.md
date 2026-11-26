@@ -373,7 +373,7 @@ type RelatedFieldValue = {
 
 2026-11-23 的输出调整统一使用顶层 `actions`，以 `actionId` 作为勾选和依赖标识。属性修改保留 `form.apply_property_change` 的语义处理，`payload` 保存 nodeId、componentName、property、operation 及适用的新值，`preconditions.before` 保存修改前状态。默认值模式与内容、选项默认项、access 联动属于一项完整语义操作，不能拆成会产生无效组合的任意叶子键。
 
-子 Agent 仅输出 `{ form_proposal: proposal }`，字段使用 `presentation.kind = shared.table-field-confirm`，属性使用 `shared.component-property-checklist`；确认卡的 presentation 只含 kind 和 title，不复制 fields/changes/items 或 result.actions。用户编辑并选择后提交唯一最终动作草稿，不附旧载荷及 edits，也不维护旧输出双格式解析。“换一换”需要最新快照和 revision。宿主必须重新检查目标、版本、before、能力、依赖、锁定及最终候选状态，再原子应用；本次不修改设计器宿主，其接入仍需同步完成。第 9 节记录原核验时的宿主事实，不表示缺口已修复。完整契约见[三端接入说明](./ai-chat-property-edit-integration.md)。
+子 Agent 仅输出 `{ form_proposal: proposal }`，新建使用 `shared.form-create-confirm`，已有表单变更使用 `shared.form-change-confirm`；确认卡的 presentation 只含 kind 和 title，不复制 fields/changes/items 或 result.actions。用户编辑并选择后提交唯一最终动作草稿，不附旧载荷及 edits，也不维护旧输出双格式解析。“换一换”需要最新快照和 revision。宿主必须重新检查目标、版本、before、能力、依赖、锁定及最终候选状态，再原子应用；本次不修改设计器宿主，其接入仍需同步完成。第 9 节记录原核验时的宿主事实，不表示缺口已修复。完整契约见[三端接入说明](./ai-chat-property-edit-integration.md)。
 
 现有更新动作载荷示例（只展示已有动作外形，不表示缺口已经修复）：
 

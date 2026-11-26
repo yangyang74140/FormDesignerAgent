@@ -8,7 +8,7 @@ from test_form_field_list import assert_action_draft
 class HostPropertyCompatibilityTests(unittest.TestCase):
     def applied(self, context, result):
         self.assertEqual(result["status"], "ready", result)
-        assert_action_draft(self, result, "shared.component-property-checklist", property_actions=True)
+        assert_action_draft(self, result, "shared.form-change-confirm", property_actions=True)
         node = deepcopy(context["currentSchema"]["fields"][0])
         rules = COMPONENT_RULES.get_component_rules(node["componentName"])
         for action in result["actions"]:

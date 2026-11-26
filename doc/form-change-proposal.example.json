@@ -1,0 +1,76 @@
+{
+  "protocol": "form-agent.v1",
+  "contractVersion": "form_change_proposal.v1",
+  "schemaVersion": "1.0.0",
+  "status": "ready",
+  "proposalId": "proposal-1ff541e14fd3c8b9",
+  "target": {
+    "schemaId": "form",
+    "baseRevision": "r1"
+  },
+  "summary": "新增备注、修改提示并删除旧字段",
+  "diagnostics": [],
+  "requestId": "request-pc-mixed-example",
+  "catalogVersion": "properties.v1",
+  "mode": "append",
+  "actionVersion": "form_change_actions.v1",
+  "actions": [
+    {
+      "actionId": "action-001",
+      "action": "form.add_component",
+      "payload": {
+        "clientRef": "new-note",
+        "componentName": "Input",
+        "props": {
+          "label": "备注",
+          "name": "new_note"
+        },
+        "target": {
+          "kind": "root",
+          "index": 2
+        }
+      },
+      "dependsOn": [],
+      "display": {
+        "selectedByDefault": true
+      }
+    },
+    {
+      "actionId": "action-83afe1e95438ddc6dd2f",
+      "action": "form.apply_property_change",
+      "payload": {
+        "nodeId": "a",
+        "componentName": "Input",
+        "property": "placeholder",
+        "operation": "set",
+        "value": "新"
+      },
+      "preconditions": {
+        "before": {
+          "exists": true,
+          "value": "旧"
+        }
+      },
+      "dependsOn": [],
+      "display": {
+        "selectedByDefault": true,
+        "effects": []
+      }
+    },
+    {
+      "actionId": "action-002",
+      "action": "form.remove_component",
+      "payload": {
+        "nodeId": "b"
+      },
+      "dependsOn": [],
+      "display": {
+        "selectedByDefault": true
+      }
+    }
+  ],
+  "presentation": {
+    "kind": "shared.form-change-confirm",
+    "title": "表单变更"
+  }
+}

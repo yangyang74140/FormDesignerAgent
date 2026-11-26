@@ -1,6 +1,6 @@
 {
   "protocol": "form-agent.v1",
-  "contractVersion": "form_property_proposal.v1",
+  "contractVersion": "form_change_proposal.v1",
   "schemaVersion": "1.1.0",
   "status": "ready",
   "proposalId": "proposal-f7646887384dab00",
@@ -13,7 +13,7 @@
   "requestId": "request-property-example",
   "catalogVersion": "component-properties.v1",
   "mode": "append",
-  "actionVersion": "form_property_actions.v1",
+  "actionVersion": "form_change_actions.v1",
   "actions": [
     {
       "actionId": "action-713834e51a204a938491",
@@ -63,7 +63,7 @@
     }
   ],
   "presentation": {
-    "kind": "shared.component-property-checklist",
-    "title": "组件属性修改建议"
+    "kind": "shared.form-change-confirm",
+    "title": "表单字段"
   }
 }

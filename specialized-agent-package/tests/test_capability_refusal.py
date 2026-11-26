@@ -83,7 +83,7 @@ class CapabilityRefusalTests(unittest.TestCase):
                 with self.subTest(metadata=metadata, action=action):
                     self.refused(compile_items(self.action_items(action, payload), context), "可写属性")
             generation_context = blank_context()
-            generation_context["capabilities"] = {"components": {"Input": metadata}}
+            generation_context["capabilities"]["components"] = {"Input": metadata}
             with self.subTest(metadata=metadata, action="form.field.define"):
                 self.refused(compile_fields([self.field()], generation_context), "可写属性")
 
@@ -150,7 +150,8 @@ class CapabilityRefusalTests(unittest.TestCase):
 
     def test_rule_component_references_do_not_authorize_components(self):
         context = host_context()
-        context.context["capabilities"] = {"actions": ["form.add_component"], "ruleCatalog": {"required": {"components": ["Input"]}}}
+        context.context["capabilities"].pop("components")
+        context.context["capabilities"]["ruleCatalog"] = {"required": {"components": ["Input"]}}
         items = self.action_items("form.add_component", {"clientRef": "person-name", "componentName": "Input", "props": {}, "target": {"kind": "root"}})
         self.refused(compile_items(items, context), "组件目录")
 
@@ -170,14 +171,15 @@ class CapabilityRefusalBoundaryTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_capability_returns_an_explanatory_unsupported_event(self):
         scenarios = []
         context = blank_context()
-        context["capabilities"] = {"components": {"Input": {"writableProps": ["label", "name", "required"]}}}
+        context["capabilities"]["components"] = {"Input": {"writableProps": ["label", "name", "required"]}}
         for extra, reason in (({"disabled": True}, "暂时还不支持禁用"), ({"width": 200}, "width")):
             scenarios.append((deepcopy(context), [
                 {"capability": "proposal.begin", "slots": {"summary": "生成禁用的姓名字段", "result_kind": "form_fields"}},
                 {"capability": "form.field.define", "slots": {"client_ref": "person-name", "component_name": "Input", "label": "姓名", "name": "person_name", **extra}},
             ], reason))
         action_context = blank_context()
-        action_context["capabilities"] = {"actions": ["form.add_component"]}
+        action_context["capabilities"].pop("components")
+        action_context["capabilities"]["actions"] = ["form.add_component"]
         scenarios.append((action_context, [
             {"capability": "proposal.begin", "slots": {"summary": "生成姓名", "result_kind": "form_actions"}},
             {"capability": "form.add_component", "slots": {"payload": {"clientRef": "person-name", "componentName": "Input", "target": {"kind": "root"}}}},
@@ -185,6 +187,8 @@ class CapabilityRefusalBoundaryTests(unittest.IsolatedAsyncioTestCase):
         for key in ("capabilities", "supportedActionVersions"):
             missing_context = deepcopy(context)
             missing_context.pop(key)
+            if key == "supportedActionVersions":
+                missing_context["capabilities"].pop(key)
             scenarios.append((missing_context, scenarios[0][1], key))
         for host, items, reason in scenarios:
             with self.subTest(reason=reason):

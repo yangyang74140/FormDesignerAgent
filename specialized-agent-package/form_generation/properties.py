@@ -28,6 +28,7 @@ from typing import Any, Mapping
 
 from .host import CapabilityUnavailable, require_component
 from .drafts import set_action_draft
+from .contracts import CHANGE_CONTRACT, CHANGE_KIND, CHANGE_VERSION, change_enabled
 from .components import PROPERTY_COMPONENTS, get_component_rules, property_names
 from .components.common import ACCESS as _ACCESS, ACCESS_DEFAULTS as _ACCESS_DEFAULTS, ALIASES as _ALIASES, STORAGE as _STORAGE
 from .components.validation import Rejected as _Rejected, reject as _reject, validate_schema as _schema
@@ -45,8 +46,6 @@ def property_capabilities() -> list[dict[str, Any]]:
         ("form.property.change", ["property", "operation"], {**target, "property": {"type": "string"}, "operation": {"enum": ["set", "clear", "unset", "reset", "copy"]}, "value": {}, "selected": {"type": "boolean", "default": True}, "source_node_id": {"type": "string"}, "source_property": {"type": "string"}}, "单项语义属性操作。仅宿主注册能力可执行；复制读取真实来源；不写 JS、身份或任意路径。"),
         ("form.property.query", ["property"], {**target, "property": {"type": "string"}}, "只读查询存储状态、有效值及来源，不生成修改动作。"),
         ("form.property.undo", ["transaction_id"], {"transaction_id": {"type": "string"}}, "仅撤销宿主历史明确声明可撤销的当前事务，禁止自行构造逆补丁。"),
-        ("form.property.rule", ["operation", "rule_type", "rule_id"], {**target, "operation": {"enum": ["add", "replace", "remove"]}, "rule_type": {"type": "string"}, "rule_id": {"type": "string"}, "value": {}, "selected": {"type": "boolean", "default": True}}, "受控规则目录操作，需要宿主 ruleCatalog、JSON schema 和处理器；rule_id 是真实规则或本提案稳定客户端引用。"),
-        ("form.property.linkage", ["operation", "linkage_type", "linkage_id"], {**target, "operation": {"enum": ["add", "replace", "remove"]}, "linkage_type": {"type": "string"}, "linkage_id": {"type": "string"}, "value": {}, "selected": {"type": "boolean", "default": True}}, "宿主 linkageCatalog 注册的有界 AST；条件引用真实节点，禁止表达式字符串。"),
     ]
     return [{"capability": name, "semantics": text, "slots_schema": {"type": "object", "required": required, "additionalProperties": False, "properties": props}} for name, required, props, text in definitions]
 
@@ -133,6 +132,8 @@ def _definition(node: dict[str, Any], prop: str, caps: Mapping[str, Any]) -> dic
 
 
 def _version(context: Mapping[str, Any], action: str) -> None:
+    if action == "form.apply_property_change" and change_enabled(context):
+        return
     versions = context.get("supportedActionVersions", {}).get(action)
     if versions is None:
         declarations = context.get("capabilities", {}).get("actions", {})
@@ -250,46 +251,6 @@ def _operation_allowed(definition: dict[str, Any], operation: str) -> None:
         _reject("OPERATION_UNSUPPORTED", f"宿主没有注册操作 {operation}。")
 
 
-def _extension(kind: str, slots: dict[str, Any], node: dict[str, Any], context: dict[str, Any], nodes: list[dict[str, Any]]) -> tuple[str, dict[str, Any], dict[str, Any], dict[str, Any]]:
-    type_key, id_key = ("rule_type", "rule_id") if kind == "rule" else ("linkage_type", "linkage_id")
-    registered = context["capabilities"].get("ruleCatalog" if kind == "rule" else "linkageCatalog", {}).get(slots.get(type_key))
-    if not isinstance(registered, dict) or not registered.get("handlerId") or not registered.get("valueSchema"):
-        _reject("EXTENSION_UNSUPPORTED", "宿主未注册此规则/联动的有界验证器和处理器。")
-    if node["componentName"] not in registered.get("components", []):
-        _reject("EXTENSION_COMPONENT_UNSUPPORTED", "规则/联动不兼容当前组件。")
-    op = slots.get("operation")
-    _operation_allowed(registered, op)
-    if op not in ("add", "replace", "remove") or not isinstance(slots.get(id_key), str) or not slots[id_key]:
-        _reject("INVALID_EXTENSION", "规则/联动操作或标识无效。")
-    _policy(node, kind, registered, context)
-    action = "form.apply_property_rule" if kind == "rule" else "form.apply_property_linkage"
-    _version(context, action)
-    collection = context.get("rules" if kind == "rule" else "linkages", {}).get(node["id"])
-    if not isinstance(collection, list) or not all(isinstance(v, dict) and isinstance(v.get("id"), str) for v in collection):
-        _reject("MISSING_EXTENSION_SNAPSHOT", "缺少规则/联动历史快照。")
-    matches = [v for v in collection if v["id"] == slots[id_key]]
-    if len(matches) > 1 or (op == "add" and matches) or (op != "add" and not matches):
-        _reject("EXTENSION_ID_CONFLICT", "规则/联动标识不存在或重复。", True)
-    if matches and matches[0].get("type") != slots[type_key]:
-        _reject("EXTENSION_TYPE_CONFLICT", "已存在的规则/联动类型不匹配。")
-    before = {"exists": bool(matches), **({"value": deepcopy(matches[0]["value"])} if matches else {})}
-    after = {"exists": op != "remove"}
-    if op == "remove":
-        if "value" in slots:
-            _reject("UNEXPECTED_VALUE", "删除规则/联动不携带 value。")
-    else:
-        if "value" not in slots:
-            _reject("VALUE_REQUIRED", "规则/联动参数缺失。", True)
-        _schema(slots["value"], registered["valueSchema"])
-        if kind == "linkage":
-            _ast(slots["value"], nodes, registered)
-        else:
-            _references(slots["value"], nodes, registered)
-        after["value"] = deepcopy(slots["value"])
-    payload = {"nodeId": node["id"], "componentName": node["componentName"], "operation": op, "type": slots[type_key], "ruleId" if kind == "rule" else "linkageId": slots[id_key], **({"value": deepcopy(after["value"])} if after["exists"] else {})}
-    return action, payload, before, after
-
-
 def _references(value: Any, nodes: list[dict[str, Any]], definition: dict[str, Any]) -> None:
     ids = {n["id"] for n in nodes}
     if isinstance(value, dict):
@@ -308,29 +269,7 @@ def _references(value: Any, nodes: list[dict[str, Any]], definition: dict[str, A
             _references(child, nodes, definition)
 
 
-def _ast(value: Any, nodes: list[dict[str, Any]], definition: dict[str, Any], depth: int = 0) -> None:
-    if depth > 8 or not isinstance(value, dict):
-        _reject("INVALID_AST", "联动只接受有界条件 AST。")
-    op = value.get("op")
-    if op not in definition.get("astOperators", []) or op not in ("and", "or", "not", "eq", "ne", "gt", "gte", "lt", "lte", "in", "isEmpty"):
-        _reject("UNSUPPORTED_AST_OPERATOR", "宿主未注册此 AST 操作。")
-    if op in ("and", "or", "not"):
-        args = value.get("args")
-        if set(value) != {"op", "args"} or not isinstance(args, list) or not 1 <= len(args) <= 20 or op == "not" and len(args) != 1:
-            _reject("INVALID_AST", "组合条件参数无效。")
-        for child in args:
-            _ast(child, nodes, definition, depth + 1)
-    else:
-        if set(value) != ({"op", "nodeId"} if op == "isEmpty" else {"op", "nodeId", "value"}):
-            _reject("INVALID_AST", "比较条件参数无效。")
-        _references(value, nodes, definition)
-        if "value" in value and isinstance(value["value"], dict):
-            _reject("INVALID_AST", "比较值必须为字面量。")
-        if op in ("gt", "gte", "lt", "lte") and type(value.get("value")) not in (int, float):
-            _reject("INVALID_AST", "数值比较必须提供有限数值。")
-
-
-def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, Any]:
+def compile_property_request(items: Any, context: Any, base: Any) -> dict[str, Any]:
     """Compile property_changes/property_query/property_undo IR into a proposal.
 
     Non-ready mutations and queries have no actions. Successful queries use
@@ -340,7 +279,7 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
     proposal = deepcopy(dict(base)) if isinstance(base, Mapping) else {}
     for key in ("result", "presentation", "actions", "mode", "actionVersion", "validation"):
         proposal.pop(key, None)
-    proposal.update(contractVersion="form_property_proposal.v1", diagnostics=[])
+    proposal.update(contractVersion=CHANGE_CONTRACT, diagnostics=[])
     try:
         if not isinstance(context, dict) or not isinstance(items, list) or not _json_safe(items) or not _json_safe(context):
             _reject("INVALID_INPUT", "属性请求或宿主上下文不是有限 JSON 数据。")
@@ -352,6 +291,13 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
         kind = begin.get("result_kind")
         if kind not in PROPERTY_RESULT_KINDS:
             _reject("UNSUPPORTED_RESULT_KIND", "不支持该属性结果类型。")
+        if kind == "property_changes":
+            if not change_enabled(context):
+                _reject("CHANGE_CONTRACT_UNSUPPORTED", "宿主未声明统一变更协议、展示组件及动作版本。")
+            if any(isinstance(item, dict) and item.get("capability") in {"form.property.rule", "form.property.linkage"} for item in items):
+                _reject("PROPERTY_PROTOCOL_UNSUPPORTED", "规则和联动尚无已约定的统一变更协议，暂不支持。")
+        elif kind == "property_undo":
+            proposal["contractVersion"] = "form_property_proposal.v1"
         work = [i for i in items if i is not begins[0]]
         if not work:
             _reject("EMPTY_PROPERTY_REQUEST", "请指定需要查询或修改的属性。", True)
@@ -430,12 +376,7 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
             node = _target(slots, nodes, context)
             next_node = next(n for n in candidate if n["id"] == node["id"])
             capability = item.get("capability")
-            if capability in ("form.property.rule", "form.property.linkage"):
-                extension_kind = capability.rsplit(".", 1)[1]
-                action_name, payload, before, after = _extension(extension_kind, slots, node, context, nodes)
-                prop = extension_kind + ":" + slots["rule_id" if extension_kind == "rule" else "linkage_id"]
-                effects = ["宿主注册处理器执行规则/联动；不执行模型生成的表达式"]
-            elif capability == "form.property.change":
+            if capability == "form.property.change":
                 prop = _canonical(slots.get("property"))
                 definition = _definition(node, prop, caps)
                 op = slots.get("operation")
@@ -535,8 +476,8 @@ def compile_property_proposal(items: Any, context: Any, base: Any) -> dict[str, 
         if all(row["before"] == row["after"] for row in rows) and candidate == nodes:
             proposal["status"] = "no_change"
             return proposal
-        set_action_draft(proposal, actions, mode="append", action_version=PROPERTY_ACTION_VERSION,
-                         kind="shared.component-property-checklist", title=begin.get("title", "组件属性修改建议"))
+        set_action_draft(proposal, actions, mode="append", action_version=CHANGE_VERSION,
+                         kind=CHANGE_KIND, title=begin.get("title", "组件属性修改建议"))
         proposal["status"] = "ready"
         return proposal
     except _Rejected as error:
