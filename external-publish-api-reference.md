@@ -52,11 +52,11 @@ curl -N -X POST "$BASE_URL/openapi/v1/services/{service_id}/invoke" \
   }'
 ```
 
-替换 service_id、API Key 与 user_id 后即可测试；示例依赖 jq 读取 access_token，也可以由调用方程序解析 JSON。access_token 过期前重新调用 /auth/token 换取即可。需要传文件时，先查询附件能力并上传，等待 parse_status=ready 后，再把 attachment_id 放入 invoke 的 attachments 数组。首次接入先不要传 capability_ids 或 context；确认基本链路成功后，再按接口详情逐项增加扩展参数。
+替换 service_id、API Key 与 user_id 后即可测试；示例依赖 jq 读取 access_token，也可以由调用方程序解析 JSON。首次流式调用从首个 connected 事件的 data.conversation_id 保存会话 ID，后续请求在顶层传回该 ID；run_id 不是会话 ID。access_token 过期前重新调用 /auth/token 换取即可。需要传文件时，先查询附件能力并上传，等待 parse_status=ready 后，再把 attachment_id 放入 invoke 的 attachments 数组。首次接入先不要传 capability_ids 或 context；确认基本链路成功后，再按接口详情逐项增加扩展参数。
 
 ## 接收流式事件时的处理顺序
 
-1. **建立连接**：收到 connected 后记录 run_id。后续的续流、补发、取消和处理中断都围绕同一个 run_id 进行。
+1. **建立连接**：首次通过 invoke 发起流式调用时，从 connected.data 同时保存 conversation_id 和 run_id：前者用于下一轮对话，后者用于当前 Run 的续流、补发、取消和中断处理。订阅已有 Run 的 stream 接口只需使用 run_id。
 2. **持续追加内容**：对 text.delta 按到达顺序追加正文；reasoning.delta 仅在产品需要展示深度思考且实际收到该事件时展示。
 3. **处理中断**：收到 tool.waiting 或 interrupt.waiting 时停止等待新正文，使用事件返回的 interrupt_id 调用 resolve；成功提交后继续订阅原 Run。
 4. **识别终态**：message.completed、message.error 和 run.cancelled 都代表本轮结束。结束后停止等待新正文；取消的 Run 不能恢复，应新建一次调用。
@@ -80,7 +80,7 @@ curl -N -X POST "$BASE_URL/openapi/v1/services/{service_id}/invoke" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -141,7 +141,7 @@ curl -X POST "$BASE_URL/openapi/v1/auth/token" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -188,7 +188,7 @@ curl -X POST "$BASE_URL/openapi/v1/auth/token/revoke" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 service_id**：service_id 必须对应已发布且可调用的正式服务。需要固定历史发布版本时，再显式传入 release_id。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -198,6 +198,7 @@ curl -X POST "$BASE_URL/openapi/v1/auth/token/revoke" \
 | `input` | `object \| string` | 是 | 调用方输入内容；Agent 服务通常传用户问题或结构化输入。 |
 | `message` | `string` | 否 | 用户消息简写；通常等价于 input.content。 |
 | `conversation_id` | `string` | 否 | 会话标识；传入后可串联多轮上下文。 |
+| `retry_last_turn` | `boolean` | 否 | 设为 true 时重新生成该会话最后一轮；必须同时传 conversation_id 和原始 input/context/attachments 等执行参数，不会新增用户消息。 |
 | `user_id` | `string` | 是 | 外部人维度主键，标准口径下的主体隔离键。 |
 | `stream` | `boolean` | 是 | 必须传 true；对外文档当前只推荐流式调用口径。 |
 | `idempotency_key` | `string` | 否 | 调用幂等键；用于调用方重试时避免重复创建同一业务请求。 |
@@ -210,7 +211,7 @@ curl -X POST "$BASE_URL/openapi/v1/auth/token/revoke" \
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `connected` | `SSE event` | 否 | 流连接建立事件，包含 run_id。 |
+| `connected` | `SSE event` | 否 | 首个流事件；data 包含 service_id、run_id 和 conversation_id。首次续聊 ID 从这里读取。 |
 | `status.update` | `SSE event` | 否 | 运行、治理、委派和子编排状态更新；具体 status 值及来源事件见下方 SSE 事件速览。 |
 | `reasoning.delta` | `SSE event` | 否 | 深度思考增量；模型未开启深度思考时不会出现。 |
 | `text.delta` | `SSE event` | 否 | 正文增量。 |
@@ -241,12 +242,12 @@ curl -X POST "$BASE_URL/openapi/v1/auth/token/revoke" \
 ### 调用示例
 
 ```bash
+# 首轮不传 conversation_id；从返回的 connected.data.conversation_id 保存会话 ID
 curl -N -X POST "$BASE_URL/openapi/v1/services/svc_xxx/invoke" \
   -H "Authorization: Bearer {access_token}" \
   -H "Content-Type: application/json" \
   -d '{
     "input": "请总结这份合同的风险点",
-    "conversation_id": "conv_demo_001",
     "user_id": "user_001",
     "stream": true,
     "release_id": "rel_xxx",
@@ -256,6 +257,29 @@ curl -N -X POST "$BASE_URL/openapi/v1/services/svc_xxx/invoke" \
         "id": "page_contract_review"
       }
     }
+  }'
+
+# 下一轮把 conversation_id 放回请求体顶层
+curl -N -X POST "$BASE_URL/openapi/v1/services/svc_xxx/invoke" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{"input":"继续刚才的话题","conversation_id":"conv_xxx","user_id":"user_001","stream":true}'
+
+# 重新生成该会话最后一轮：重传该轮原始执行参数，幂等键使用新的唯一值
+curl -N -X POST "$BASE_URL/openapi/v1/services/svc_xxx/invoke" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "请总结这份合同的风险点",
+    "conversation_id": "conv_xxx",
+    "user_id": "user_001",
+    "retry_last_turn": true,
+    "stream": true,
+    "idempotency_key": "retry-contract-001",
+    "release_id": "rel_xxx",
+    "capability_ids": ["cap_skill_xxx", "cap_mcp_xxx"],
+    "context": {"page": {"id": "page_contract_review"}},
+    "attachments": ["att_contract_xxx"]
   }'
 ```
 
@@ -270,6 +294,13 @@ curl -N -X POST "$BASE_URL/openapi/v1/services/svc_xxx/invoke" \
 - capability_ids 只影响本次服务 Run，不会修改 Agent 配置；它可以覆盖 Agent 层能力开关，但不能突破 Agent 已绑定范围。
 - 能力中心全局关闭的能力即使传入 capability_ids 也会被静默过滤，不报错、不注入、不调用。
 - 平台复用附件先通过 attachment 凭证调用 /openapi/v1/attachments/reusable-attachments 创建，再把 ready 的 attachment_id 放入本次 invoke；目标服务仍会校验解析器绑定。
+- 首次调用不传 conversation_id 时，服务端自动创建会话；从首个 connected 事件的 data.conversation_id 读取并持久保存。非流式调用则从响应 data.conversation_id 读取。
+- 后续每轮都在请求体顶层传回 conversation_id；run_id 是单轮运行 ID，不能用于续聊。
+- 重新生成仅允许目标会话的最后一轮且原 Run 已进入终态；重试请求必须重传原始 input、context、attachments、release_id、capability_ids 和主体字段。正文与附件会由服务端核对，其他自由参数由调用方按原请求重传。
+- 重新生成不会新增用户消息；服务端创建新 Run，保留旧 Run 和旧助手消息记录，并将旧助手消息标记为 retried，使普通历史只展示新回答。idempotency_key 仍为可选；为新重试提供幂等键时请使用新值，断流后用同一幂等键和原请求重放。
+- retry_last_turn 同时适用于 stream=true 和 stream=false；流式重试会返回新 Run 的独立 SSE 流。
+- attachments 必须与原消息附件及顺序完全一致；input.content 必须与该轮原问题完全一致。正在运行、等待中断、已被后续轮次取代或目标消息无法核验时拒绝重试。
+- 重试输入不匹配或会话/主体/版本无法核验时返回 400 BAD_REQUEST；受理前检测到末轮已变化或会话仍有活动 Run 时返回 409 CONVERSATION_RUN_CONFLICT。
 - 当前不再单独提供功能重叠的创建流式运行接口，流式启动统一通过该接口传 stream=true。
 - 若服务未发布、Key 无权限或服务被禁用，请求会被拒绝且写入调用日志。
 
@@ -292,7 +323,7 @@ curl -N -X POST "$BASE_URL/openapi/v1/services/svc_xxx/invoke" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 agent_id**：agent_id 必须关联可调用的已发布服务；该入口仍会执行发布状态、授权、限流和熔断校验。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -302,6 +333,7 @@ curl -N -X POST "$BASE_URL/openapi/v1/services/svc_xxx/invoke" \
 | `input` | `object \| string` | 是 | 调用方输入内容。 |
 | `message` | `string` | 否 | 用户消息简写；通常等价于 input.content。 |
 | `conversation_id` | `string` | 否 | 可选会话标识，用于多轮上下文。 |
+| `retry_last_turn` | `boolean` | 否 | 设为 true 时重新生成该会话最后一轮；必须同时传 conversation_id 和原始 input/context/attachments 等执行参数，不会新增用户消息。 |
 | `user_id` | `string` | 是 | 外部人维度主键，标准口径下的主体隔离键。 |
 | `stream` | `boolean` | 是 | 必须传 true；对外文档当前只推荐流式调用口径。 |
 | `idempotency_key` | `string` | 否 | 调用幂等键；用于调用方重试时避免重复创建同一业务请求。 |
@@ -313,7 +345,7 @@ curl -N -X POST "$BASE_URL/openapi/v1/services/svc_xxx/invoke" \
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `connected` | `SSE event` | 否 | 流连接建立事件，包含 run_id。 |
+| `connected` | `SSE event` | 否 | 首个流事件；data 包含 service_id、run_id 和 conversation_id。首次续聊 ID 从这里读取。 |
 | `status.update` | `SSE event` | 否 | 运行、治理、委派和子编排状态更新；具体 status 值及来源事件见下方 SSE 事件速览。 |
 | `reasoning.delta` | `SSE event` | 否 | 深度思考增量。 |
 | `text.delta` | `SSE event` | 否 | 正文增量。 |
@@ -344,10 +376,32 @@ curl -N -X POST "$BASE_URL/openapi/v1/services/svc_xxx/invoke" \
 ### 调用示例
 
 ```bash
+# 首轮不传 conversation_id；从返回的 connected.data.conversation_id 保存会话 ID
 curl -N -X POST "$BASE_URL/openapi/v1/agents/agent_xxx/invoke" \
   -H "Authorization: Bearer {access_token}" \
   -H "Content-Type: application/json" \
   -d '{"input":"帮我生成一份周报","user_id":"user_001","stream":true,"release_id":"rel_xxx","context":{"page":{"id":"weekly_report"}}}'
+
+# 下一轮把 conversation_id 放回请求体顶层
+curl -N -X POST "$BASE_URL/openapi/v1/agents/agent_xxx/invoke" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{"input":"继续刚才的话题","conversation_id":"conv_xxx","user_id":"user_001","stream":true}'
+
+# 重新生成最后一轮时，重传该轮原始执行参数并使用新的幂等键
+curl -N -X POST "$BASE_URL/openapi/v1/agents/agent_xxx/invoke" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": "帮我生成一份周报",
+    "conversation_id": "conv_xxx",
+    "user_id": "user_001",
+    "retry_last_turn": true,
+    "stream": true,
+    "idempotency_key": "retry-weekly-report-001",
+    "release_id": "rel_xxx",
+    "context": {"page": {"id": "weekly_report"}}
+  }'
 ```
 
 ### 调用规则与限制
@@ -359,6 +413,13 @@ curl -N -X POST "$BASE_URL/openapi/v1/agents/agent_xxx/invoke" \
 - release_id 用于固定调用某个已发布版本；后续更新发布不会影响指定版本。不传 release_id 时，默认使用当前正式版本。
 - release_id 必须属于反查到的 service_id 且版本状态可用；无效时请求会被拒绝，不会静默切换到最新版本。
 - 平台复用附件必须先通过 attachment 凭证创建并等待 ready；目标 Agent 未绑定对应解析器或版本时，invoke 会拒绝该附件。
+- 首次调用不传 conversation_id 时，服务端自动创建会话；从首个 connected 事件的 data.conversation_id 读取并持久保存。非流式调用则从响应 data.conversation_id 读取。
+- 后续每轮都在请求体顶层传回 conversation_id；run_id 是单轮运行 ID，不能用于续聊。
+- 重新生成仅允许目标会话的最后一轮且原 Run 已进入终态；必须重传原始 input、context、attachments、release_id 及主体字段。正文与附件由服务端核对，其他自由参数由调用方按原请求重传。
+- 重新生成不会新增用户消息；服务端创建新 Run，保留旧 Run 和旧助手消息记录，并将旧助手消息标记为 retried，使普通历史只展示新回答。idempotency_key 仍为可选；为新重试提供幂等键时请使用新值，断流后用同一幂等键和原请求重放。
+- retry_last_turn 同时适用于 stream=true 和 stream=false；流式重试会返回新 Run 的独立 SSE 流。
+- 正在运行、等待中断、已被后续轮次取代或目标消息无法核验时拒绝重试。
+- 重试输入不匹配或会话/主体/版本无法核验时返回 400 BAD_REQUEST；受理前检测到末轮已变化或会话仍有活动 Run 时返回 409 CONVERSATION_RUN_CONFLICT。
 
 ## GET /openapi/v1/agents/{agent_id}/chat-config
 
@@ -379,7 +440,7 @@ curl -N -X POST "$BASE_URL/openapi/v1/agents/agent_xxx/invoke" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -412,8 +473,8 @@ curl "$BASE_URL/openapi/v1/agents/agent_xxx/chat-config" \
 ### 调用规则与限制
 
 - 只读取已发布 Release 快照，不读取未发布的编辑草稿；二开 Agent 的包内配置也按发布版本返回。
-- 查询接口不会创建 conversation_id、Run 或模型调用。首次真正调用 Agent 时，如果请求未传 conversation_id，调用链才会创建会话并在响应/事件中返回会话标识。
-- 后续多轮调用应复用首次调用返回的 conversation_id；传入不存在或无权访问的会话时沿用现有会话校验。
+- 查询接口不会创建 conversation_id、Run 或模型调用。首次真正调用 Agent 时，如果请求未传 conversation_id，调用链才会创建会话；流式从首个 connected 事件的 data.conversation_id 获取，非流式从响应 data.conversation_id 获取。
+- 后续多轮调用应在请求体顶层复用 conversation_id；run_id 仅代表单轮运行。传入不存在或无权访问的会话时沿用现有会话校验。
 - 当前发布版本更新后，重新查询才会看到新配置；固定 release_id 的调用仍按调用时指定版本执行。
 
 ## GET /openapi/v1/services/{service_id}/chat-config
@@ -435,7 +496,7 @@ curl "$BASE_URL/openapi/v1/agents/agent_xxx/chat-config" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -468,7 +529,7 @@ curl "$BASE_URL/openapi/v1/services/service_xxx/chat-config" \
 ### 调用规则与限制
 
 - 只读取该服务已发布 Release 快照，不读取未发布的编辑草稿；二开 Agent 同样适用。
-- 查询接口不会创建 conversation_id、Run 或模型调用；首次真正调用服务时才按既有调用链创建会话。
+- 查询接口不会创建 conversation_id、Run 或模型调用；首次真正调用服务时才按既有调用链创建会话。流式 ID 从首个 connected 事件的 data.conversation_id 获取，非流式 ID 从响应 data.conversation_id 获取。
 - 该接口与 /openapi/v1/agents/{agent_id}/chat-config 返回同一份发布配置。
 
 ## GET /openapi/v1/agents
@@ -551,7 +612,7 @@ curl "$BASE_URL/openapi/v1/agents?user_id=user_001&page=1&size=20" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -605,7 +666,7 @@ curl "$BASE_URL/openapi/v1/services/svc_xxx/attachment-capabilities?user_id=user
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -659,7 +720,7 @@ curl "$BASE_URL/openapi/v1/agents/agent_xxx/attachment-capabilities?user_id=user
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -720,7 +781,7 @@ curl -X POST "$BASE_URL/openapi/v1/services/svc_xxx/attachments" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -958,7 +1019,7 @@ curl -X POST "$BASE_URL/openapi/v1/services/svc_xxx/attachments/att_xxx/summary/
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -1007,7 +1068,7 @@ curl "$BASE_URL/openapi/v1/attachments/parser-services/parser_xxx/attachment-cap
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -1069,7 +1130,7 @@ curl -X POST "$BASE_URL/openapi/v1/attachments/reusable-attachments" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -1295,7 +1356,7 @@ curl -X POST "$BASE_URL/openapi/v1/reusable-attachments/att_xxx/summary/cancel?u
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -1346,7 +1407,7 @@ curl -X POST "$BASE_URL/openapi/v1/attachments/reusable-attachments/att_xxx/cont
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -1401,7 +1462,7 @@ const stream = new EventSource(
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -1599,7 +1660,7 @@ curl -G "$BASE_URL/openapi/v1/conversations/conv_xxx/messages" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -1649,7 +1710,7 @@ GET /openapi/v1/runs/run_xxx?user_id=user_001
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -1706,7 +1767,7 @@ curl -X POST "$BASE_URL/openapi/v1/runs/run_xxx/cancel" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -1816,9 +1877,9 @@ action 使用 approve/reject。审核流程要求提交审核数据时放在 pay
 }
 ```
 
-#### 澄清单题：选择候选项
+#### 澄清单题：单选
 
-当 interrupt.payload.clarification.group 不存在时按单题提交。selected_option_id 取 interrupt.payload.clarification.options[].id，round 取 current_round；不要提交 selected_option 或候选 value。
+当 interrupt.payload.clarification.group 不存在且 selection_mode=single 时提交。selected_option_id 取冻结 options 的节点 ID；树形时可取任意 selectable 节点。round 取 current_round，不要提交选项对象或候选业务 value。
 
 ```json
 {
@@ -1826,6 +1887,23 @@ action 使用 approve/reject。审核流程要求提交审核数据时放在 pay
   "payload": {
     "kind": "selected",
     "selected_option_id": "<clarification.options[].id>",
+    "round": 1
+  },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
+#### 澄清单题：多选
+
+当 interrupt.payload.clarification.group 不存在且 selection_mode=multiple 时提交。selected_option_ids 必须是非空数组，所有 ID 都要来自冻结平铺 options 或树中 selectable 节点；不能同时传 selected_option_id。
+
+```json
+{
+  "action": "answer",
+  "payload": {
+    "kind": "selected",
+    "selected_option_ids": ["form-1", "form-2"],
     "round": 1
   },
   "idempotency_key": "resolve-run_xxx-int_xxx-001",
@@ -1848,7 +1926,7 @@ action 使用 approve/reject。审核流程要求提交审核数据时放在 pay
 
 #### 澄清问题组：一次提交整组答案
 
-group_key 取 interrupt.payload.clarification.group.key；question_id 取 group.questions[].id，answers 必须是数组且不重不漏地覆盖本组全部题目。单选的 selected_option_id 取该题 options[].id；文本题仅在 input_enabled=true 时提交 text。round 取 current_round；不要提交 selected_option。
+group_key 取 interrupt.payload.clarification.group.key；question_id 取 group.questions[].id，answers 必须不重不漏覆盖全部题目。每题按 selection_mode 使用 selected_option_id（单选）或 selected_option_ids（多选）；ID 可来自树的任意 selectable 节点。文本题仅在 input_enabled=true 时提交 text。round 取 current_round；不要提交选项对象。
 
 ```json
 {
@@ -1859,8 +1937,25 @@ group_key 取 interrupt.payload.clarification.group.key；question_id 取 group.
     "round": 1,
     "answers": [
       { "question_id": "<group.questions[0].id>", "kind": "selected", "selected_option_id": "<该题 options[].id>" },
-      { "question_id": "<group.questions[1].id>", "kind": "text", "text": "用户填写的内容" }
+      { "question_id": "<group.questions[1].id>", "kind": "selected", "selected_option_ids": ["<树中可选节点 ID>", "<另一个可选节点 ID>"] }
     ]
+  },
+  "idempotency_key": "resolve-run_xxx-int_xxx-001",
+  "user_id": "user_001"
+}
+```
+
+#### 澄清树形候选与多选规则
+
+options_mode=tree 时 options 是递归节点，子级放在 children。selection_mode=single/multiple 决定答案是单个 ID 还是 ID 数组；旧 payload 缺少两个字段时按 flat/single 处理。单选 ID 与多选 ID 数组不能同时提交。
+
+```json
+{
+  "action": "answer",
+  "payload": {
+    "kind": "selected",
+    "selected_option_ids": ["form-1", "form-2"],
+    "round": 1
   },
   "idempotency_key": "resolve-run_xxx-int_xxx-001",
   "user_id": "user_001"
@@ -1926,7 +2021,7 @@ group_key 取 interrupt.payload.clarification.group.key；question_id 取 group.
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -1977,7 +2072,7 @@ curl "$BASE_URL/openapi/v1/services/svc_xxx/artifacts/art_xxx" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -2025,7 +2120,7 @@ curl "$BASE_URL/openapi/v1/services/svc_xxx/artifacts/art_xxx/content" \
 1. **权限已配置**：请求携带有效 API Key，且调用方已获目标服务的授权范围。服务未发布、已禁用或无权限时不能通过重试绕过。
 2. **确认 run_id**：run_id 必须来自同一调用主体已建立的正式运行。不要混用其他用户、服务或历史运行的标识。
 3. **带上 user_id**：user_id 是外部主体隔离键。客户端应使用稳定、可追溯的业务用户标识，而不是随机生成或控制台账户标识。
-4. **准备客户端状态**：流式入口需保存 run_id 与 sequence_no；可能进入等待状态的场景还需保存 interrupt_id，并在终态后停止追加或继续恢复。
+4. **准备客户端状态**：invoke 流首个 connected 事件需保存 conversation_id 供后续续聊；每轮还要保存 run_id 与 sequence_no。可能进入等待状态时保存 interrupt_id，并在终态后停止追加或继续恢复。
 
 ### 请求参数
 
@@ -2058,7 +2153,7 @@ curl "$BASE_URL/openapi/v1/services/svc_xxx/artifacts/art_xxx/url" \
 
 | 事件 | 类型 | 说明 |
 | --- | --- | --- |
-| `connected` | `event` | SSE 建连成功，包含 run_id。 |
+| `connected` | `event` | invoke 流的首个事件包含 run_id 和 conversation_id；后者用于后续多轮续聊。 |
 | `status.update` | `event` | 统一状态事件。payload 含 title、summary、tone、status、source_event_type；运行、治理、护栏、委派和子编排状态都由此承载，status 值见下方状态表。 |
 | `reasoning.delta` | `event` | 深度思考增量；模型开启深度思考时才出现。 |
 | `text.delta` | `event` | 正文增量，客户端应按顺序追加展示。 |
