@@ -14,7 +14,7 @@
 
 可直接使用的请求示例：
 
-> 按 `specialized-agent-package/specs/component-conversion.md`，把设计器项目 `/实际/设计器项目路径` 中 `SelectSingle` 的 `showSearch` 和 `defaultValue` 转换到 Agent；按真实实现完成规则、注册、测试和相关文档。
+> 按仓库根目录的 `component-conversion.md`，把设计器项目 `/实际/设计器项目路径` 中 `SelectSingle` 的 `showSearch` 和 `defaultValue` 转换到 Agent；按真实实现完成规则、注册、测试和相关文档。
 
 默认交付范围是当前 Agent 仓库，外部设计器作为只读事实来源。用户已要求转换实施时，完成已授权范围内的调查与实现，不重复询问已经写明的通用规则；只有缺少必要事实、产品语义存在多种合理选择，或需要扩大到其他项目／协议时才提问。用户只要求调查、报告或复述时保持只读。
 
@@ -22,10 +22,10 @@
 
 按需读取，避免一次加载整个设计器：
 
-1. 本仓库 [AGENTS.md](../../AGENTS.md)、[Agent README](../README.md)、[规范入口](./README.md)。
-2. [动作规范](./actions.md)、[属性规则](./properties.md)、[组件目录](./components/README.md) 和本次涉及的组件族规范。
+1. 本仓库 [AGENTS.md](./AGENTS.md)、[Agent README](./specialized-agent-package/README.md)、[规范入口](./specialized-agent-package/specs/README.md)。
+2. [动作规范](./specialized-agent-package/specs/actions.md)、[属性规则](./specialized-agent-package/specs/properties.md)、[组件目录](./specialized-agent-package/specs/components/README.md) 和本次涉及的组件族规范。
 3. 指定设计器自己的 `AGENTS.md`、目标目录中的适用指令，以及组件／共享运行时的相关规约。设计器要求 CodeGraph 等检索方式时先遵守；工具不可用则说明并根据真实源码继续调查。
-4. 涉及宿主 context、确认卡、属性应用或回执时，读取[三端接入说明](../../doc/ai-chat-property-edit-integration.md)。[属性核验清单](../../doc/component-property-inventory.md) 可作导航，历史结论必须与当前设计器代码复核。
+4. 涉及宿主 context、确认卡、属性应用或回执时，读取[三端接入说明](./doc/ai-chat-property-edit-integration.md)。[属性核验清单](./doc/component-property-inventory.md) 可作导航，历史结论必须与当前设计器代码复核。
 
 用户指定的当前实现是调查对象。设计器 meta、属性面板、编辑与查看 Renderer、共享运行时、写入处理器、测试各自证明不同层面的事实，不能只取其中一个作为全部能力证明。文档、注释、样例与当前消费者冲突时，列出差异并以可追踪的实际执行路径为依据；测试源码代表已有断言，只有实际执行成功才能报告“本次测试通过”。
 
@@ -158,7 +158,7 @@
 
 ### 6.3 保持现有提案契约
 
-按[动作规范](./actions.md)和[属性规则](./properties.md)编译，不为新增组件另造动作同义名、第二套输出或选择提交结构。
+按[动作规范](./specialized-agent-package/specs/actions.md)和[属性规则](./specialized-agent-package/specs/properties.md)编译，不为新增组件另造动作同义名、第二套输出或选择提交结构。
 
 - 最终仍是 `{form_proposal: proposal}`，顶层 actions 是唯一执行草稿；展示从同一草稿派生。
 - 属性原状态只放 `preconditions.before={exists,value?}`；`set/copy` 的目标新值只在 `payload.value`，`clear/unset/reset` 不带 value。不增加 after 或重复执行清单。
@@ -234,4 +234,4 @@ python3 -B package_agent.py
 
 ## 9. 后续维护
 
-本文维护转换流程、组织原则和验证要求；具体组件属性事实放在 [components/](./components/README.md)，动作和属性语义分别由 [actions.md](./actions.md)、[properties.md](./properties.md) 维护。后续实现改变模式解析或接入能力时，同步更新本文第 3 节基线及相关入口，避免继续把旧限制或目标能力当成当前事实。
+本文维护转换流程、组织原则和验证要求；具体组件属性事实放在 [components/](./specialized-agent-package/specs/components/README.md)，动作和属性语义分别由 [actions.md](./specialized-agent-package/specs/actions.md)、[properties.md](./specialized-agent-package/specs/properties.md) 维护。后续实现改变模式解析或接入能力时，同步更新本文第 3 节基线及相关入口，避免继续把旧限制或目标能力当成当前事实。

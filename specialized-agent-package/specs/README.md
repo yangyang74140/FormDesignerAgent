@@ -9,7 +9,7 @@
 | 动作名称、payload、定位、顺序与失败 | [表单动作](./actions.md) | `form_generation/action_rules/` |
 | 公共属性、语义值、授权、清空与依赖 | [属性规则](./properties.md) | `form_generation/components/common.py`、`properties.py` |
 | 哪些组件支持生成或属性修改 | [组件目录](./components/README.md) | `form_generation/components/` |
-| 如何从真实设计器转换组件或属性到 Agent | [组件与属性转换规范](./component-conversion.md) | `components/`、`host.py`、`modes.py` 与对应编译入口；按用户指定路径核验宿主 |
+| 如何从真实设计器转换组件或属性到 Agent | [组件与属性转换规范](../../component-conversion.md) | `components/`、`host.py`、`modes.py` 与对应编译入口；按用户指定路径核验宿主 |
 | 文本、数字、日期时间、选项的特殊规则 | 组件目录中的各族规范 | `components/definitions/<组件名>.py`；复用处理在 `_shared/` |
 | 宿主输入与最终提案外层 | [Agent README](../README.md) | `proposal.py`、`agent_definition.py` |
 | 三端展示、确认、应用与保存 | [接入说明](../../doc/ai-chat-property-edit-integration.md) | 消费端与设计器宿主另行实现 |
