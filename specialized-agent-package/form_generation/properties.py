@@ -27,6 +27,7 @@ import re
 from typing import Any, Mapping
 
 from .host import CapabilityUnavailable, require_component
+from .modes import canonical_canvas, require_flow, validate_scope
 from .drafts import set_action_draft
 from .contracts import CHANGE_CONTRACT, CHANGE_KIND, CHANGE_VERSION, change_enabled
 from .components import PROPERTY_COMPONENTS, get_component_rules, property_names
@@ -109,7 +110,7 @@ def _canonical(prop: Any) -> str:
     return _ALIASES.get(prop, prop)
 
 
-def _definition(node: dict[str, Any], prop: str, caps: Mapping[str, Any]) -> dict[str, Any]:
+def _definition(node: dict[str, Any], prop: str, caps: Mapping[str, Any], context: Mapping[str, Any]) -> dict[str, Any]:
     component = node.get("componentName")
     if component not in COMPONENTS:
         _reject("UNSUPPORTED_COMPONENT", "不支持系统组件或容器属性。")
@@ -117,7 +118,7 @@ def _definition(node: dict[str, Any], prop: str, caps: Mapping[str, Any]) -> dic
         prefix = "暂时还不支持禁用" if prop == "disabled" else "暂时还不支持所请求的属性"
         _reject("UNSUPPORTED_PROPERTY", f"{prefix}：组件 {component} 没有注册的内置语义 {prop}。")
     try:
-        require_component(component, caps)
+        require_component(component, caps, context=context)
     except CapabilityUnavailable as error:
         _reject(error.code, str(error))
     definitions = caps.get("components", {}).get(component, {}).get("properties")
@@ -128,6 +129,7 @@ def _definition(node: dict[str, Any], prop: str, caps: Mapping[str, Any]) -> dic
         _reject("UNSUPPORTED_PROPERTY", f"宿主未唯一注册语义属性 {prop}。")
     if matches[0].get("supported") is False:
         _reject("UNSUPPORTED_PROPERTY", f"宿主不支持属性 {prop}。")
+    validate_scope(matches[0], context, f"{component}.{prop}")
     return matches[0]
 
 
@@ -188,15 +190,6 @@ def _policy(node: dict[str, Any], prop: str, definition: dict[str, Any], context
             _reject("SAVED_PROPERTY_LOCKED", "已保存字段的此属性不可修改。")
         if type(saved) is not bool or type(disabled) is not bool:
             _reject("MISSING_NODE_POLICY", "受保存锁保护的属性需要明确 saved/disabledName。")
-    canvas = context.get("canvas", {})
-    layout = canvas.get("layoutMode", context.get("currentSchema", {}).get("layoutMode"))
-    if prop in ("titleHidden", "titleAlign", "titlePosition") and str(layout).lower() != "flow":
-        _reject("LAYOUT_RESTRICTED", "该属性仅支持明确的 Flow 布局。")
-    device = canvas.get("device", context.get("device"))
-    if prop in ("size", "readOnlyDisplay") and device not in ("pc", "desktop", "PC"):
-        _reject("DEVICE_RESTRICTED", "缺少 PC 设备信息或当前为移动端。")
-    if "layouts" in definition and layout not in definition["layouts"] or "devices" in definition and device not in definition["devices"]:
-        _reject("LAYOUT_RESTRICTED", "宿主布局或设备策略不允许该属性。")
 
 
 def _snapshot(node: Mapping[str, Any], prop: str) -> dict[str, Any]:
@@ -222,10 +215,6 @@ def _resolved(node: dict[str, Any], prop: str, definition: dict[str, Any], conte
         if host["source"] == "local" and not stored["exists"]:
             _reject("INVALID_RESOLVED_PROPERTY", "宿主来源与局部存储状态不一致。")
         return {"stored": stored, "source": host["source"], "resolvedValue": deepcopy(host["resolvedValue"])}
-    if prop == "descriptionDisplay" and str(context.get("canvas", {}).get("layoutMode", context.get("currentSchema", {}).get("layoutMode", ""))).lower() == "grid":
-        form_props = context.get("currentSchema", {}).get("props", {})
-        if "extraType" in form_props:
-            return {"stored": stored, "source": "inherited", "resolvedValue": deepcopy(form_props["extraType"])}
     if stored["exists"]:
         return {"stored": stored, "source": "local", "resolvedValue": deepcopy(stored["value"])}
     if prop in _ACCESS:
@@ -284,6 +273,8 @@ def compile_property_request(items: Any, context: Any, base: Any) -> dict[str, A
         if not isinstance(context, dict) or not isinstance(items, list) or not _json_safe(items) or not _json_safe(context):
             _reject("INVALID_INPUT", "属性请求或宿主上下文不是有限 JSON 数据。")
         context = deepcopy(context)
+        context["canvas"] = canonical_canvas(context.get("canvas"))
+        require_flow(context, properties=True)
         begins = [i for i in items if isinstance(i, dict) and i.get("capability") == "proposal.begin"]
         if len(begins) != 1 or not isinstance(begins[0].get("slots"), dict):
             _reject("INVALID_IR", "必须有一个 proposal.begin。")
@@ -357,7 +348,7 @@ def compile_property_request(items: Any, context: Any, base: Any) -> dict[str, A
                 slots = item["slots"]
                 node = _target(slots, nodes, context)
                 prop = _canonical(slots.get("property"))
-                definition = _definition(node, prop, caps)
+                definition = _definition(node, prop, caps, context)
                 _read_policy(node, prop, context)
                 if definition.get("readable") is False or definition.get("readable") is not True and "query" not in definition.get("operations", []):
                     _reject("QUERY_UNSUPPORTED", "宿主不允许读取此属性。")
@@ -378,7 +369,7 @@ def compile_property_request(items: Any, context: Any, base: Any) -> dict[str, A
             capability = item.get("capability")
             if capability == "form.property.change":
                 prop = _canonical(slots.get("property"))
-                definition = _definition(node, prop, caps)
+                definition = _definition(node, prop, caps, context)
                 op = slots.get("operation")
                 _operation_allowed(definition, op)
                 _policy(node, prop, definition, context)
@@ -391,7 +382,7 @@ def compile_property_request(items: Any, context: Any, base: Any) -> dict[str, A
                         _reject("INVALID_COPY", "复制必须指定真实来源，不携带 value。", True)
                     source_node = _target({"node_id": slots["source_node_id"]}, nodes, context)
                     source_prop = _canonical(slots.get("source_property", prop))
-                    source_def = _definition(source_node, source_prop, caps)
+                    source_def = _definition(source_node, source_prop, caps, context)
                     _read_policy(source_node, source_prop, context)
                     if source_def.get("readable") is False:
                         _reject("COPY_SOURCE_UNREADABLE", "复制来源不可读。")
@@ -479,6 +470,10 @@ def compile_property_request(items: Any, context: Any, base: Any) -> dict[str, A
         set_action_draft(proposal, actions, mode="append", action_version=CHANGE_VERSION,
                          kind=CHANGE_KIND, title=begin.get("title", "组件属性修改建议"))
         proposal["status"] = "ready"
+        return proposal
+    except CapabilityUnavailable as error:
+        proposal.update(status="unsupported", summary=str(error), diagnostics=[{"code": error.code, "message": str(error)}])
+        proposal.pop("presentation", None)
         return proposal
     except _Rejected as error:
         proposal.update(status="needs_clarification" if error.clarify else "unsupported", summary=error.message, diagnostics=[{"code": error.code, "message": error.message}])

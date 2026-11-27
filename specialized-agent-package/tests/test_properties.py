@@ -14,7 +14,7 @@ def host(component="Input"):
     properties = {prop: {"operations": ["set", "clear", "unset", "reset", "copy", "query"]} for prop in COMPONENT_RULES.property_names(component)}
     return {
         "target": {"schemaId": "form", "revision": "r1"},
-        "canvas": {"layoutMode": "flow", "device": "pc"},
+        "canvas": {"layoutMode": "flow", "deviceMode": "pc"},
         "currentSchema": {"fields": [{"id": "a", "componentName": component, "props": {"label": "说明", "name": "note", "identifiers": {"name": "note"}, "placeholder": "旧", "size": "medium", "defaultValueConfig": "undefined", "access": {"required": False, "visible": False, "editable": False, "forbidManualInput": False}}}], "props": {"textAlign": "right"}},
         "selection": {"nodeId": "a"},
         "capabilities": {"supportedProposalContracts": ["form_change_proposal.v1"], "supportedPresentationKinds": ["shared.form-change-confirm"], "catalogVersion": "properties.v1", "components": {component: {"properties": properties}}},
@@ -129,7 +129,7 @@ class PropertyTests(unittest.TestCase):
         context["canvas"]["layoutMode"] = "grid"
         self.rejected(run([change("textAlign", "left")], context), "LAYOUT_RESTRICTED")
         context = host()
-        context["canvas"]["device"] = "mobile"
+        context["canvas"]["deviceMode"] = "mobile"
         self.rejected(run([change("size", "large")], context), "DEVICE_RESTRICTED")
 
     def test_default_zero_and_paired_clear(self):

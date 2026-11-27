@@ -25,7 +25,7 @@ def host_context(**overrides):
             ],
         },
         "selection": {"nodeId": "reason", "parentId": None},
-        "canvas": {"layoutMode": "flow", "device": "pc", "isBlank": False},
+        "canvas": {"layoutMode": "flow", "deviceMode": "pc", "isBlank": False},
         "capabilities": {
             "supportedProposalContracts": ["form_change_proposal.v1"],
             "supportedPresentationKinds": ["shared.form-create-confirm", "shared.form-change-confirm"],

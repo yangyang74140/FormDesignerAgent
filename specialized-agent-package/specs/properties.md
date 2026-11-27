@@ -16,8 +16,8 @@
 | description、descriptionDisplay | extra、extraType | 描述最多 200 字符；展示方式 text/icon |
 | required、edit、display、disableManualEdit | access.required/editable/visible/forbidManualInput | 通过权限联动；不是任意设置四个独立布尔值 |
 | requiredMessage | 必填提示字符串 | 依赖 required |
-| titleHidden、titleAlign、titlePosition | hideTitle、textAlign、labelPosition | 仅明确 Flow；对齐 left/right；位置 top/left；对齐与位置可删除局部覆盖恢复继承 |
-| size、readOnlyDisplay | 尺寸 small/medium/large、只读显示布尔 | 当前要求明确 PC/desktop 设备信息 |
+| titleHidden、titleAlign、titlePosition | hideTitle、textAlign、labelPosition | 仅 Flow（缺省 flow）；对齐 left/right；位置 top/left；对齐与位置可删除局部覆盖恢复继承 |
+| size、readOnlyDisplay | 尺寸 small/medium/large、只读显示布尔 | 使用规范 canvas.deviceMode，当前处理器仅支持 PC Flow（缺省 pc/flow） |
 | placeholder | 字符串 | 默认值由具体组件确定 |
 | defaultValue | 组件决定的语义类型 | 文本、数字、日期时间与选项不能统一用同一种值结构 |
 
@@ -77,3 +77,5 @@ ai-chat 直接编辑 payload 并按 actionId 选择同一 actions 草稿，提�
 非 ready 修改结果没有执行动作或可应用确认卡。生成校验不授权编辑后的草稿：宿主须复验固定目标、revision、目录与能力、动作版本、before、复制来源、依赖、引用和顺序，在副本运行真实处理器并验证最终候选，全部通过才原子提交。回执和撤销必须反映实际事务；应用仅更新画布，保存另行完成。具体请求和验收见[三端接入说明](../../doc/ai-chat-property-edit-integration.md)。
 
 具体组件属性、类型和复杂结构见[组件目录](./components/README.md)；完整宿主属性核验依据见[属性清单](../../doc/component-property-inventory.md)，其中标为建议的行为不能视作已部署。
+
+模式统一由 `form_generation/modes.py` 解析；查询、复制来源与修改共享范围校验，撤销同样受 PC Flow 实现边界约束。完整默认、非法值及目录范围规则见[动作规范](./actions.md#端与布局模式2026-11-27)。

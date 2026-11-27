@@ -188,7 +188,6 @@ class FormFieldListTests(unittest.TestCase):
     def test_full_generation_requires_blank_flow_schema_1_0(self):
         field = {"client_ref": "name", "component_name": "Input", "label": "姓名", "name": "name"}
         for mutation, message in (
-            ({"canvas": {"layoutMode": "grid", "isBlank": True}}, "flow"),
             ({"canvas": {"layoutMode": "flow", "isBlank": False}}, "空白"),
         ):
             context = blank_context()

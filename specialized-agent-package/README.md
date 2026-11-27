@@ -27,6 +27,8 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 
 本文采用用户已确认的单一 actions 草稿契约，保留模型输入 IR 和既有动作语义。2026-11-23 用户指定的本地设计器已接入 PC Flow 既有属性处理器的最终草稿复验、原子应用和 appliedActionIds 回执；ai-chat 同步读取真实完成事件信封。**本地验证不代表三端已部署，也不扩展未实现的规则、联动、复制或查询/撤销卡片。** 不提供旧格式解析、迁移或结构版本分流。
 
+从真实设计器补充组件或属性时，先读仓库根目录的[组件与属性转换规范](../component-conversion.md)。后续会话提供目标组件／属性和设计器项目路径即可依此完成源码核验、规则复用、端与布局差异管理、实现、注册、测试及文档；该规范不自动开放宿主或 Agent 尚未实现的能力。
+
 ## 支持范围
 
 字段生成支持单层 Flow 表单（包括已保存画布），依据实际结构和宿主能力校验，不限制 FormSchema 版本：
@@ -50,7 +52,7 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 - `target`：`schemaId`、`formId`、`revision`，可附带 `appId`、`layoutId`。
 - `currentSchema`：当前完整 Schema；新建时至少提供空 `fields`。
 - `selection`：发送时的真实 `nodeId` 和未保存状态。
-- `canvas`：`layoutMode: flow` 和 `isBlank`。
+- `canvas`：`deviceMode: pc/mobile`、`layoutMode: flow/grid` 和 `isBlank`，默认 pc/flow；当前编译范围见文末模式契约。
 - `capabilities`：组件目录、每个组件的可写属性、动作和可选规则目录。
 - `fieldNameRules`：命名正则、最大长度、保留名和可选字段数上限。
 - `optionRules`：至少包括选项数量上限。
@@ -334,3 +336,11 @@ JSON Schema 仅支持编译器已实现的受控子集，未实现关键字（�
 ```
 
 该文件随 ZIP 交付，用于调用配置对照；不作为 manifest 字段，也不自动改变平台 Release。`release_id` 的选择在 Agent 执行之前由平台完成，调用方需要在 `/invoke` 请求顶层（与 input、stream、context 同级）传入上述值，不要放入 context。平台会检查其属于目标 service_id 且可用，包内记录不代表已验证远程发布状态。后续发布新版本时，应核对并更新调用方的固定 release_id，否则请求仍固定到旧发布快照。
+
+## 端与布局模式（2026-11-27）
+
+网络上下文仅使用 `canvas.deviceMode`（`pc` / `mobile`）与 `canvas.layoutMode`（`flow` / `grid`）；宿主将源 `deviceType` 映射到 deviceMode。未提供、null、空字符串或纯空白分别默认 pc、flow；显式非法类型或值返回 unsupported（INVALID_DEVICE_MODE / INVALID_LAYOUT_MODE），不读取旧 device，也不从 schema.grid 是否存在猜测模式。currentSchema.layoutMode 明确声明时必须有效并与规范画布布局一致，否则 LAYOUT_MODE_CONFLICT；canvas 未提供布局时仍默认 flow。
+
+Agent 字段与原始动作当前仅支持单层 Flow，Grid 明确返回 LAYOUT_RESTRICTED。Flow 新增仍需真实组件目录及独立 create 授权；缺少 devices/layouts 不扩充原有能力，显式范围（包括空列表或错误类型）必须符合当前模式。组件根层范围与 create 范围取交集；create.writableProps 独立于既有节点属性目录，显式空列表不得回退。组件 properties 中已核验的 PC Flow 语义范围不授予或限制另一套 create.props 能力；create 自身 properties 如有范围也需校验。
+
+语义属性修改、查询、复制和撤销仍仅支持 PC Flow（其他端返回 DEVICE_RESTRICTED），目录不能扩大处理器实现范围。查询与复制来源同样检查组件/属性 devices/layouts。节点策略、保存锁、复合处理器及动作版本继续独立生效。模型上下文过滤不适用的组件、create 和属性候选，编译器再次硬校验；用户编辑后的草稿仍由宿主按实际模式重新验证，不能复用生成授权。范围缺失或不支持的需求不得静默省略后交付部分 ready。

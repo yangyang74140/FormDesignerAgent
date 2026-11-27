@@ -550,3 +550,11 @@ Agent、ai-chat、宿主分别升级，不能用 Agent 包版本替代能力协�
 ### 动作版本隔离
 
 新建固定使用已授权的 1.0；已有表单变更固定使用三项能力协商后的 form_change_actions.v1。撤销保留独立 form_property_actions.v1 授权。capabilities 的版本键存在时优先且空值不回退，缺省才读 context 顶层。schemaVersion 仅是可选画布元数据。
+
+## 端与布局模式（2026-11-27）
+
+网络上下文仅使用 `canvas.deviceMode`（`pc` / `mobile`）与 `canvas.layoutMode`（`flow` / `grid`）；宿主将源 `deviceType` 映射到 deviceMode。未提供、null、空字符串或纯空白分别默认 pc、flow；显式非法类型或值返回 unsupported（INVALID_DEVICE_MODE / INVALID_LAYOUT_MODE），不读取旧 device，也不从 schema.grid 是否存在猜测模式。currentSchema.layoutMode 明确声明时必须有效并与规范画布布局一致，否则 LAYOUT_MODE_CONFLICT；canvas 未提供布局时仍默认 flow。
+
+Agent 字段与原始动作当前仅支持单层 Flow，Grid 明确返回 LAYOUT_RESTRICTED。Flow 新增仍需真实组件目录及独立 create 授权；缺少 devices/layouts 不扩充原有能力，显式范围（包括空列表或错误类型）必须符合当前模式。组件根层范围与 create 范围取交集；create.writableProps 独立于既有节点属性目录，显式空列表不得回退。组件 properties 中已核验的 PC Flow 语义范围不授予或限制另一套 create.props 能力；create 自身 properties 如有范围也需校验。
+
+语义属性修改、查询、复制和撤销仍仅支持 PC Flow（其他端返回 DEVICE_RESTRICTED），目录不能扩大处理器实现范围。查询与复制来源同样检查组件/属性 devices/layouts。节点策略、保存锁、复合处理器及动作版本继续独立生效。模型上下文过滤不适用的组件、create 和属性候选，编译器再次硬校验；用户编辑后的草稿仍由宿主按实际模式重新验证，不能复用生成授权。范围缺失或不支持的需求不得静默省略后交付部分 ready。

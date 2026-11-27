@@ -35,7 +35,7 @@ class PropertyIntegrationTests(IsolatedAsyncioTestCase):
             "schemaVersion": "1.1.0",
             "target": {"schemaId": "form-1", "revision": "rev-1"},
             "selection": {"nodeId": "field-1"},
-            "canvas": {"layoutMode": "flow", "device": "pc"},
+            "canvas": {"layoutMode": "flow", "deviceMode": "pc"},
             "currentSchema": {"schemaVersion": "1.1.0", "fields": [{
                 "id": "field-1", "componentName": "Input", "props": {
                     "label": "说明", "name": "note", "placeholder": "",
