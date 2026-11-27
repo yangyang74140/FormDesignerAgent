@@ -14,6 +14,7 @@ from .host import (
     CapabilityUnavailable, component_catalog, component_names, node_index, reject_properties,
     require_component, target_node_id, validate_writable_props, writable_props,
 )
+from .modes import canonical_canvas, require_flow
 from .properties import compile_property_request, property_capabilities
 from .drafts import set_action_draft
 from .contracts import CHANGE_CONTRACT, CHANGE_VERSION, CREATE_KIND, CHANGE_KIND, change_enabled, declared
@@ -38,7 +39,21 @@ _FIELD_NAME_PATTERN = r"^[a-z][a-z0-9_]*$"
 
 def proposal_capabilities(context: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
     """Return controlled IR, narrowing generation to the current host catalog."""
+    context = normalize_host_context(context) if context is not None else None
     available = component_names(context.get("capabilities")) if context is not None else set(FLOW_COMPONENTS)
+    if context is not None:
+        allowed = set()
+        for component in available:
+            try:
+                require_flow(context)
+                writable = writable_props(component, context.get("capabilities"), creation=True, context=context)
+                if not {"label", "name"} <= writable:
+                    continue
+                validate_writable_props(component, {"label": "", "name": ""}, context.get("capabilities"), creation=True, context=context)
+                allowed.add(component)
+            except CapabilityUnavailable:
+                pass
+        available = allowed
     components = [component for component in FLOW_COMPONENTS if component in available]
     capabilities = [
         {
@@ -186,7 +201,7 @@ def normalize_host_context(step_context: Any) -> dict[str, Any]:
         "target": _first_mapping(source, "target"),
         "currentSchema": schema,
         "selection": _first_mapping(source, "selection"),
-        "canvas": _first_mapping(source, "canvas"),
+        "canvas": canonical_canvas(source.get("canvas")),
         "capabilities": capabilities,
         "fieldNameRules": _first_mapping(source, "fieldNameRules") or deepcopy(nested_capabilities.get("fieldNameRules", {})),
         "optionRules": _first_mapping(source, "optionRules") or deepcopy(nested_capabilities.get("optionRules", {})),
@@ -272,6 +287,7 @@ def _compile_form_proposal(ir_payload: Any, step_context: Any) -> dict[str, Any]
     if state != "begin":
         raise ValueError(f"不支持的提案状态: {state}")
 
+    require_flow(context)
     base["status"] = "ready"
     result_kind = _text(slots.get("result_kind"))
     work_capabilities = {item.get("capability") for item in non_state_items}
@@ -318,9 +334,7 @@ def _compile_form_fields(
     if mode not in {"replace_empty_form", "append"}:
         raise ValueError("字段生成只支持 replace_empty_form 或 append")
     schema = context.get("currentSchema", {})
-    canvas = context.get("canvas") if isinstance(context.get("canvas"), Mapping) else {}
-    if _text(canvas.get("layoutMode"), "flow").lower() != "flow" or _text(schema.get("layoutMode"), "flow").lower() != "flow":
-        raise ValueError("字段生成只支持 flow 布局")
+    require_flow(context)
     if mode == "replace_empty_form" and not _is_blank_canvas(context):
         raise ValueError("replace_empty_form 只允许用于空白表单")
     existing = schema.get("fields")
@@ -482,7 +496,7 @@ def _compile_field(
     if "required" in slots and type(slots["required"]) is not bool:
         raise ValueError("required 必须为 boolean")
     props: dict[str, Any] = {"label": label, "name": name}
-    writable = writable_props(component, context.get("capabilities"), creation=True)
+    writable = writable_props(component, context.get("capabilities"), creation=True, context=context)
     if "required" in writable or slots.get("required") is True or ("required" in slots and component != "Switch"):
         props["required"] = slots.get("required") is True
     placeholder = _text(slots.get("placeholder"))
@@ -495,7 +509,7 @@ def _compile_field(
         props["options"] = _normalize_options(raw_options, context)
     elif isinstance(raw_options, list) and raw_options:
         raise ValueError(f"{component} 不支持 options")
-    validate_writable_props(component, props, context.get("capabilities"), creation=True)
+    validate_writable_props(component, props, context.get("capabilities"), creation=True, context=context)
 
     seen_refs.add(client_ref)
     seen_names.add(name)
@@ -688,11 +702,9 @@ def _action_references(value: Any) -> set[str]:
 def _validate_action_sequence(actions: list[dict[str, Any]], context: Mapping[str, Any]) -> None:
     schema = context.get("currentSchema", {})
     fields = deepcopy(schema.get("fields"))
-    canvas = context.get("canvas", {})
     if not isinstance(fields, list) or any(not isinstance(field, Mapping) or field.get("children") or field.get("fields") for field in fields):
         return
-    if _text(canvas.get("layoutMode") or schema.get("layoutMode"), "flow").lower() != "flow":
-        return
+    require_flow(context)
     for action in actions:
         payload = action["payload"]
         kind = action["action"]

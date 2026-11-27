@@ -97,3 +97,11 @@
 非法 payload、引用或值由生产 handler 转为 `form_proposal_validation_failed` 并中止 Run；锚点缺失/歧义为 needs_clarification。其他属性诊断见属性规范。非 ready 状态不携带执行动作。
 
 生成校验只针对生成时快照；用户可编辑 payload，因此宿主必须再次校验最终草稿的目标、revision、能力/动作版本、before、依赖、引用、确定性顺序、位置与最终候选。类型转换的默认值、迁移、有损决定以及删除引用完整性须由支持处理器验证，不能用 UI 投影伪造。全部成功才原子应用，以独立 Apply 幂等键防重放，形成真实撤销事务；应用只更新画布，保存另行完成。完整请求和回执边界见[三端接入说明](../../doc/ai-chat-property-edit-integration.md)。
+
+## 端与布局模式（2026-11-27）
+
+网络上下文仅使用 `canvas.deviceMode`（`pc` / `mobile`）与 `canvas.layoutMode`（`flow` / `grid`）；宿主将源 `deviceType` 映射到 deviceMode。未提供、null、空字符串或纯空白分别默认 pc、flow；显式非法类型或值返回 unsupported（INVALID_DEVICE_MODE / INVALID_LAYOUT_MODE），不读取旧 device，也不从 schema.grid 是否存在猜测模式。currentSchema.layoutMode 明确声明时必须有效并与规范画布布局一致，否则 LAYOUT_MODE_CONFLICT；canvas 未提供布局时仍默认 flow。
+
+Agent 字段与原始动作当前仅支持单层 Flow，Grid 明确返回 LAYOUT_RESTRICTED。Flow 新增仍需真实组件目录及独立 create 授权；缺少 devices/layouts 不扩充原有能力，显式范围（包括空列表或错误类型）必须符合当前模式。组件根层范围与 create 范围取交集；create.writableProps 独立于既有节点属性目录，显式空列表不得回退。组件 properties 中已核验的 PC Flow 语义范围不授予或限制另一套 create.props 能力；create 自身 properties 如有范围也需校验。
+
+语义属性修改、查询、复制和撤销仍仅支持 PC Flow（其他端返回 DEVICE_RESTRICTED），目录不能扩大处理器实现范围。查询与复制来源同样检查组件/属性 devices/layouts。节点策略、保存锁、复合处理器及动作版本继续独立生效。模型上下文过滤不适用的组件、create 和属性候选，编译器再次硬校验；用户编辑后的草稿仍由宿主按实际模式重新验证，不能复用生成授权。范围缺失或不支持的需求不得静默省略后交付部分 ready。

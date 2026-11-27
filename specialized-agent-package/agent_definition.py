@@ -19,6 +19,7 @@ from .form_generation.proposal import (
     proposal_capabilities,
 )
 from .form_generation.contracts import change_enabled
+from .form_generation.model_context import model_host_context
 
 def _step_result(result: Any) -> Any:
     if isinstance(result, Mapping):
@@ -120,7 +121,7 @@ async def generate_form_proposal(step_context: Any) -> Any:
         ),
         input_data={
             "user_input": step_context.inputs,
-            "host_context": deepcopy(host_context),
+            "host_context": model_host_context(host_context),
         },
         allow_plan_items=True,
         max_plan_items=64,
@@ -134,6 +135,7 @@ async def generate_form_proposal(step_context: Any) -> Any:
         output_contract=FORM_PROPOSAL_CONTRACT,
         prompt_rules=[
             "只输出严格 JSON，不要输出 Markdown、代码围栏、解释文字或最终 form_proposal。",
+            "当前模式只读取 canvas.deviceMode(pc/mobile)、canvas.layoutMode(flow/grid)，空值或未提供默认 pc/flow；非法值或布局冲突必须 unsupported。不得从 schema.grid 推断布局。组件、create 与属性的 devices/layouts 都要满足，create.writableProps 独立授权；Grid 不支持，语义属性修改、查询、复制及撤销仅支持 PC Flow。任何用户要求被范围限制时整批拒绝，不得省略后 ready。",
             "根对象必须且只能是 {plan_items:[{capability, slots}, ...]}，即使只有一个项目也必须放进 plan_items 数组。",
             "根对象除 plan_items 外不得包含其他字段；不要把 capability、slots、summary、status、fields、actions、presentation、result 或 form_proposal 直接放在根对象。",
             "每个 capability 项目必须同时包含 capability 字符串和 slots 对象，不得省略 slots。",

@@ -3,7 +3,8 @@
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from ..host import node_index, target_node_id
+from ..host import component_catalog, node_index, target_node_id
+from ..modes import require_flow, validate_scope
 from .component import (
     CLIENT_REF_PATTERN,
     validate_add, validate_component_payload, validate_convert, validate_move, validate_options, validate_remove, validate_update,
@@ -51,6 +52,7 @@ def action_capabilities() -> list[dict[str, Any]]:
 
 def validate_action(action: str, payload: dict[str, Any], context: Mapping[str, Any], batch_refs: set[str]) -> None:
     """Validate one payload; host authorization and batch ordering stay with the compiler."""
+    require_flow(context)
     rule = _REGISTRY.get(action)
     if rule is None:
         raise ValueError(f"提案包含未注册动作: {action}")
@@ -62,5 +64,9 @@ def validate_action(action: str, payload: dict[str, Any], context: Mapping[str, 
             raise ValueError(f"动作引用了不存在的节点: {node_id}")
         if rule.requires_node and not node_id:
             raise ValueError(f"{action} 必须包含真实节点 ID")
+    if rule.requires_node:
+        node = nodes.get(target_node_id(payload, context), {})
+        metadata = component_catalog(context.get("capabilities")).get(node.get("componentName"), {})
+        validate_scope(metadata, context, str(node.get("componentName", "组件")))
     validate_component_payload(action, payload)
     rule.validate(payload, context, nodes, batch_refs)

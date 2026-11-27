@@ -48,11 +48,11 @@ def validate_add(payload: dict[str, Any], context: Mapping[str, Any], nodes: Map
         raise ValueError("新增组件必须包含合法 clientRef")
     if component not in FLOW_COMPONENTS:
         raise CapabilityUnavailable("UNSUPPORTED_COMPONENT", f"首期不支持组件: {component}。")
-    require_component(component, context.get("capabilities"))
+    require_component(component, context.get("capabilities"), context=context, creation=True)
     if "props" in payload and not isinstance(payload["props"], Mapping):
         raise ValueError("新增组件 props 必须是对象")
     props = payload.get("props", {})
-    validate_writable_props(component, props, context.get("capabilities"), creation=True)
+    validate_writable_props(component, props, context.get("capabilities"), creation=True, context=context)
     validate_position(payload.get("target"), nodes, context)
 
 
@@ -64,7 +64,7 @@ def validate_update(payload: dict[str, Any], context: Mapping[str, Any], nodes: 
     if "name" in changes or "identifiers" in changes:
         raise ValueError("现有字段 props.name 不可修改")
     component = _text(nodes.get(node_id, {}).get("componentName"))
-    validate_writable_props(component, changes, context.get("capabilities"))
+    validate_writable_props(component, changes, context.get("capabilities"), context=context)
 
 
 def validate_options(payload: dict[str, Any], context: Mapping[str, Any], nodes: Mapping[str, Any], batch_refs: set[str]) -> None:
@@ -72,7 +72,7 @@ def validate_options(payload: dict[str, Any], context: Mapping[str, Any], nodes:
     component = _text(nodes.get(node_id, {}).get("componentName"))
     if component not in OPTION_COMPONENTS:
         raise ValueError(f"{component or node_id} 不支持 options")
-    validate_writable_props(component, {"options": payload.get("options")}, context.get("capabilities"))
+    validate_writable_props(component, {"options": payload.get("options")}, context.get("capabilities"), context=context)
 
 
 def validate_move(payload: dict[str, Any], context: Mapping[str, Any], nodes: Mapping[str, Any], batch_refs: set[str]) -> None:
@@ -90,7 +90,7 @@ def validate_convert(payload: dict[str, Any], context: Mapping[str, Any], nodes:
     component = _text(payload.get("componentName") or payload.get("targetComponentName"))
     if component not in FLOW_COMPONENTS:
         raise CapabilityUnavailable("UNSUPPORTED_COMPONENT", f"首期不支持目标组件: {component}。")
-    require_component(component, context.get("capabilities"))
+    require_component(component, context.get("capabilities"), context=context, creation=True)
 
 
 def _text(value: Any) -> str:

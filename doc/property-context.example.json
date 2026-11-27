@@ -10,7 +10,7 @@
   },
   "canvas": {
     "layoutMode": "flow",
-    "device": "pc",
+    "deviceMode": "pc",
     "isBlank": false
   },
   "currentSchema": {

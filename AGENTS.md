@@ -37,6 +37,7 @@ Agent 依据宿主真实上下文生成建议；ai-chat 展示并维护用户确
 | `specialized-agent-package/bootstrap.py` | 平台要求的插件注册入口 | 排查插件加载、注册或导入时读取 |
 | `specialized-agent-package/agent_definition.py` | 本 Agent 的意图、受控能力调用和输出流水线 | 修改生成与编排行为时读取 |
 | `specialized-agent-package/specs/README.md` | 包内业务规范入口，区分当前实现与已确认的后续目标 | 修改动作、属性、组件支持范围前必读；按链接读取相关规范 |
+| `specialized-agent-package/specs/component-conversion.md` | 从真实设计器实现转换组件与属性到 Agent 的专用操作规范 | 从设计器补充组件或属性前必读；按用户提供的项目路径核验源码，复用公共规则、管理端与布局差异，同步实现、注册、测试和文档；设计器默认只读，不因可渲染就授予 Agent 写入能力 |
 | `specialized-agent-package/specs/actions.md` | 表单动作名称、payload、身份、位置、顺序和错误语义 | 动作协议调整前读取；与动作注册表和测试同步维护 |
 | `specialized-agent-package/specs/properties.md`、`specialized-agent-package/specs/components/` | 公共属性、组件族与专有属性规则 | 属性或组件扩展前读取；本地定义不替代宿主能力授权 |
 | `specialized-agent-package/form_generation/` | 提案编排；`action_rules/` 管动作注册与校验，`components/` 管组件规则，`host.py` 读宿主能力 | 按职责修改；不要把组件规则重新集中到 proposal.py 或 properties.py |
@@ -87,7 +88,12 @@ Agent 依据宿主真实上下文生成建议；ai-chat 展示并维护用户确
 - 平台或 SDK 接入：本文件 → 第三方开发指南对应章节 → 平台接口参考对应接口。
 - 表单动作或输出设计：本文件 → Agent 包 README → 包内 specs/actions.md → 相关三端接入文档 → 编译器与消费端对应实现；先锁定共同契约，再同步实施。
 - 属性能力：本文件 → 包内 specs/properties.md 与对应组件族规范 → 组件属性清单 → 属性接入说明及示例 → 属性编译和宿主实现。
+- 从设计器转换组件或属性：本文件 → [组件与属性转换规范](specialized-agent-package/specs/component-conversion.md) → 包 README、动作／属性／组件规范 → 用户指定设计器的 AGENTS.md、相关规约与实际代码；用户提供目标组件／属性和真实项目路径即可按规范执行，无需重复输入通用规则。先区分面板配置、运行时消费与 Agent 操作授权，保留未支持模式的明确拒绝。
 - 插件交付：核对源码与文档后，运行 `python3 -B package_agent.py`；它会先运行现有 Python 测试，再校验并打包。仅验证测试可使用 `python3 -B -m unittest discover -s specialized-agent-package/tests -q`。
 - 文档导航调整无需运行业务测试，但应检查文件路径、链接及第三方文件未被修改。
 
 保留用户已有未提交改动；没有明确要求，不提交、不推送、不切分支、不自动覆盖样例文件。
+
+## 7. 端与布局模式
+
+宿主源 deviceType 映射到网络 context.canvas.deviceMode（pc/mobile）；canvas.layoutMode 使用 flow/grid。未提供、null、空白默认 pc/flow，非法值和明确布局冲突拒绝，不读取旧 device，不从 schema.grid 猜测。组件根层及 create 的 devices/layouts 均须满足；create 可写目录与既有语义属性授权独立。字段/原始动作仅支持单层 Flow；语义属性修改、查询、复制和撤销仅限 PC Flow，目录不扩大处理器范围。详见包内动作规范端与布局模式章节。

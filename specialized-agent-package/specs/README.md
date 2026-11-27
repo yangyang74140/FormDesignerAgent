@@ -9,6 +9,7 @@
 | 动作名称、payload、定位、顺序与失败 | [表单动作](./actions.md) | `form_generation/action_rules/` |
 | 公共属性、语义值、授权、清空与依赖 | [属性规则](./properties.md) | `form_generation/components/common.py`、`properties.py` |
 | 哪些组件支持生成或属性修改 | [组件目录](./components/README.md) | `form_generation/components/` |
+| 如何从真实设计器转换组件或属性到 Agent | [组件与属性转换规范](./component-conversion.md) | `components/`、`host.py`、`modes.py` 与对应编译入口；按用户指定路径核验宿主 |
 | 文本、数字、日期时间、选项的特殊规则 | 组件目录中的各族规范 | `components/definitions/<组件名>.py`；复用处理在 `_shared/` |
 | 宿主输入与最终提案外层 | [Agent README](../README.md) | `proposal.py`、`agent_definition.py` |
 | 三端展示、确认、应用与保存 | [接入说明](../../doc/ai-chat-property-edit-integration.md) | 消费端与设计器宿主另行实现 |
@@ -21,6 +22,8 @@ form_generation/
 ├── properties.py        # 属性提案编排、宿主授权、批次依赖
 ├── drafts.py            # 单一动作草稿、动作 ID 与依赖结构校验
 ├── host.py              # 宿主目录和节点身份读取
+├── modes.py             # 规范端/布局、默认值、冲突与能力范围
+├── model_context.py     # 模型可见的模式候选过滤
 ├── action_rules/
 │   ├── __init__.py      # 动作名称、能力声明与校验分派
 │   ├── component.py     # 新增、修改、选项、移动、删除、转换

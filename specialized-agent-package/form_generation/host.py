@@ -1,20 +1,18 @@
 """Read host catalogs and node identities without inferring missing capabilities."""
 
+from __future__ import annotations
+
 from copy import deepcopy
 from typing import Any, Mapping
 
-
-class CapabilityUnavailable(ValueError):
-    def __init__(self, code: str, message: str):
-        super().__init__(message)
-        self.code = code
+from .modes import CapabilityUnavailable, validate_scope
 
 
 def component_names(value: Any) -> set[str]:
     return {name for name, metadata in component_catalog(value).items() if metadata.get("supported") is not False}
 
 
-def require_component(component: str, capabilities: Any) -> dict[str, Any]:
+def require_component(component: str, capabilities: Any, *, context: Mapping[str, Any] | None = None, creation: bool = False) -> dict[str, Any]:
     catalog = component_catalog(capabilities)
     if not catalog:
         raise CapabilityUnavailable("MISSING_COMPONENT_CATALOG", "宿主未提供非空组件目录，暂时无法确认可用组件。")
@@ -22,7 +20,16 @@ def require_component(component: str, capabilities: Any) -> dict[str, Any]:
         raise CapabilityUnavailable("UNSUPPORTED_COMPONENT", f"组件不在宿主能力目录中: {component}。")
     if catalog[component].get("supported") is False:
         raise CapabilityUnavailable("UNSUPPORTED_COMPONENT", f"宿主明确不支持组件: {component}。")
-    return catalog[component]
+    metadata = catalog[component]
+    if context is not None:
+        validate_scope(metadata, context, component)
+    if creation and "create" in metadata:
+        create = metadata["create"]
+        if not isinstance(create, Mapping) or create.get("supported") is False:
+            raise CapabilityUnavailable("UNSUPPORTED_COMPONENT", f"宿主未开放组件新增: {component}。")
+        if context is not None:
+            validate_scope(create, context, f"{component}.create")
+    return metadata
 
 
 def reject_properties(component: str, names: Any, reason: str) -> None:
@@ -64,8 +71,8 @@ def component_catalog(value: Any) -> dict[str, dict[str, Any]]:
     return result
 
 
-def writable_props(component: str, capabilities: Any, *, creation: bool = False) -> set[str]:
-    metadata = require_component(component, capabilities)
+def writable_props(component: str, capabilities: Any, *, creation: bool = False, context: Mapping[str, Any] | None = None) -> set[str]:
+    metadata = require_component(component, capabilities, context=context, creation=creation)
     if creation and isinstance(metadata.get("create"), Mapping):
         metadata = metadata["create"]
     raw = metadata.get("writableProps") if "writableProps" in metadata else metadata.get("editableProps")
@@ -77,9 +84,9 @@ def writable_props(component: str, capabilities: Any, *, creation: bool = False)
     return set(raw)
 
 
-def validate_writable_props(component: str, props: Mapping[str, Any], capabilities: Any, *, creation: bool = False) -> None:
+def validate_writable_props(component: str, props: Mapping[str, Any], capabilities: Any, *, creation: bool = False, context: Mapping[str, Any] | None = None) -> None:
     try:
-        writable = writable_props(component, capabilities, creation=creation)
+        writable = writable_props(component, capabilities, creation=creation, context=context)
     except CapabilityUnavailable as error:
         if "disabled" in props:
             raise CapabilityUnavailable(error.code, "暂时还不支持禁用：" + str(error)) from error
@@ -87,6 +94,18 @@ def validate_writable_props(component: str, props: Mapping[str, Any], capabiliti
     unsupported = set(props) - writable
     if unsupported:
         reject_properties(component, unsupported, "存在宿主不可写属性")
+    if context is not None:
+        metadata = require_component(component, capabilities, context=context, creation=creation)
+        sources = [metadata["create"]] if creation and isinstance(metadata.get("create"), Mapping) else [metadata]
+        for source in sources:
+            definitions = source.get("properties", {})
+            if isinstance(definitions, Mapping):
+                for prop in props:
+                    definition = definitions.get(prop)
+                    if isinstance(definition, Mapping):
+                        if definition.get("supported") is False:
+                            reject_properties(component, {prop}, "宿主明确关闭属性")
+                        validate_scope(definition, context, f"{component}.{prop}")
 
 
 def node_index(schema: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
