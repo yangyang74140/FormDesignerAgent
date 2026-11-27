@@ -60,6 +60,63 @@ class ExistingCanvasTests(unittest.TestCase):
             self.assertEqual(field["props"]["label"], definition["label"])
             self.assertEqual(field["props"]["name"], definition["name"])
 
+    def test_name_only_addition_preserves_existing_components_outside_creation_catalog(self):
+        for result_kind in ("form_fields", "form_changes"):
+            for metadata in (None, {"supported": False}):
+                with self.subTest(result_kind=result_kind, metadata=metadata):
+                    context = saved_context()
+                    context["capabilities"] = deepcopy(context["capabilities"])
+                    context["currentSchema"]["fields"] = [{
+                        "id": "existing-department", "componentName": "DepartmentSelect",
+                        "props": {"label": "部门选择", "name": "department", "multiple": True},
+                    }]
+                    if metadata is not None:
+                        context["capabilities"]["components"]["DepartmentSelect"] = metadata
+                    original = deepcopy(context)
+                    result = compile_additions(context, fields=[{
+                        "client_ref": "student-name", "component_name": "Input",
+                        "label": "姓名", "name": "student_name",
+                    }], result_kind=result_kind)
+                    self.assertEqual(result["status"], "ready", result)
+                    assert_action_draft(self, result)
+                    self.assertEqual(context, original)
+                    self.assertEqual(len(result["actions"]), 1)
+                    payload = result["actions"][0]["payload"]
+                    self.assertEqual(payload["componentName"], "Input")
+                    self.assertEqual(payload["props"]["label"], "姓名")
+                    self.assertEqual(payload["target"], {"kind": "root", "index": 1})
+                    fields = apply_field_actions(context["currentSchema"]["fields"], result["actions"])
+                    self.assertEqual(fields[:1], original["currentSchema"]["fields"])
+                    self.assertEqual(fields[1]["props"]["name"], "student_name")
+
+    def test_preserving_an_existing_department_does_not_authorize_adding_one(self):
+        context = saved_context()
+        context["currentSchema"]["fields"] = [{
+            "id": "existing-department", "componentName": "DepartmentSelect",
+            "props": {"label": "部门选择", "name": "department"},
+        }]
+        result = compile_additions(context, fields=[{
+            "client_ref": "new-department", "component_name": "DepartmentSelect",
+            "label": "新部门", "name": "new_department",
+        }])
+        self.assertEqual(result["status"], "unsupported", result)
+        self.assertIn("首期不支持组件: DepartmentSelect", result["summary"])
+        assert_non_executable(self, result)
+
+    def test_preserved_nodes_still_require_valid_structure_and_unique_identity(self):
+        valid = {"id": "existing-department", "componentName": "DepartmentSelect", "props": {"name": "department"}}
+        for fields, message in (
+            ([{**valid, "id": ""}], "节点 ID"),
+            ([valid, deepcopy(valid)], "节点 ID"),
+            ([{**valid, "componentName": ""}], "componentName"),
+            ([{**valid, "children": [valid]}], "单层 Flow"),
+            ([None], "单层 Flow"),
+        ):
+            with self.subTest(fields=fields), self.assertRaisesRegex(ValueError, message):
+                context = saved_context()
+                context["currentSchema"]["fields"] = fields
+                compile_additions(context)
+
     def test_matching_by_label_name_id_and_selection_keeps_batch_order(self):
         anchor = SCHEMA["fields"][1]
         for selector in (

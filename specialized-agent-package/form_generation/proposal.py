@@ -379,7 +379,7 @@ def _compile_form_fields(
     if any(not isinstance(field, Mapping) or field.get("children") or field.get("fields") for field in existing):
         raise ValueError("字段生成只支持单层 Flow 组件")
     if existing:
-        _validate_schema(schema, context)
+        _validate_existing_schema(schema)
     insertion_index = _field_insertion_index(slots.get("target"), existing, context) if mode == "append" else 0
 
     if mode == "append":
@@ -809,13 +809,11 @@ def _normalize_options(value: Any, context: Mapping[str, Any]) -> list[dict[str,
     return result
 
 
-def _validate_schema(schema: Mapping[str, Any], context: Mapping[str, Any]) -> None:
+def _validate_existing_schema(schema: Mapping[str, Any]) -> None:
+    """Preserved host nodes need valid identities, not creation authorization."""
     fields = schema.get("fields")
     if not isinstance(fields, list):
         raise ValueError("完整 FormSchema 必须包含 fields 数组")
-    allowed = component_names(context.get("capabilities"))
-    if fields and not allowed:
-        raise CapabilityUnavailable("MISSING_COMPONENT_CATALOG", "宿主 capabilities 未提供可用组件目录，不能校验完整 FormSchema。")
     seen: set[str] = set()
     for field in fields:
         if not isinstance(field, Mapping):
@@ -825,8 +823,8 @@ def _validate_schema(schema: Mapping[str, Any], context: Mapping[str, Any]) -> N
         if not node_id or node_id in seen:
             raise ValueError("完整 FormSchema 的节点 ID 必须存在且唯一")
         seen.add(node_id)
-        if allowed and component not in allowed:
-            raise CapabilityUnavailable("UNSUPPORTED_COMPONENT", f"完整 FormSchema 使用了未声明组件: {component}。")
+        if not component:
+            raise ValueError("完整 FormSchema 的节点必须包含 componentName")
 
 
 def _supported_actions(context: Mapping[str, Any]) -> set[str]:

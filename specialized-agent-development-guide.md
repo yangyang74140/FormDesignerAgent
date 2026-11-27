@@ -1002,9 +1002,9 @@ builder.with_persona(
 
 ### 8.3 等待式澄清调用入口
 
-Output Pipeline handler 复用现有 `context.clarification`：单题使用原 `request(...)`，同一当前步骤的独立多题使用 `request_group(key=..., questions=[...], max_rounds=3)`。`max_rounds` 可省略（默认 3）或设为任意正整数，首次请求后会话冻结该值。组答案通过 `answer.answers[question_id]` 取得原 selected/text 结果；不需要注册第二套澄清器、创建新 Run 或修改通用主链。
+Output Pipeline handler 复用现有 `context.clarification`：单题使用原 `request(...)`，同一当前步骤的独立多题使用 `request_group(key=..., questions=[...], max_rounds=3)`。每题可配置 `options_mode=flat|tree` 与 `selection_mode=single|multiple`；旧调用默认平铺单选。多选返回 `selected_option_ids`，树节点按稳定 ID 选取，适用于单题与问题组。不需要注册第二套澄清器、创建新 Run 或修改通用主链。
 
-完整签名、组声明、轮次限制与副作用防重约束见本知识库“14.6 现有等待式澄清器：单题和同组多题”。恢复只复用已完成前序步骤，当前步骤允许受控重放；不能将任意写操作放在 request 之前，也不能假定回答后执行就天然防重。生成二开代码时必须明确稳定业务操作身份及未知结果处理，缺少幂等基础时说明阻塞，不绕过共享能力、解析或审批规则。
+`max_rounds` 可省略（默认 3）或设为任意正整数，首次请求后会话冻结该值。组答案通过 `answer.answers[question_id]` 取得对应题目的 selected/text/multiple 结果。完整字段、树/平铺示例、容量限制、resolve 载荷与副作用防重约束见本知识库“14.6 现有等待式澄清器：单题和同组多题”。恢复只复用已完成前序步骤，当前步骤允许受控重放；不能将任意写操作放在 request 前，也不能假定回答后执行就天然防重。生成二开代码时必须明确稳定业务操作身份及未知结果处理，缺少幂等基础时说明阻塞，不绕过共享能力、解析或审批规则。
 
 ## Memory、Skill 和 MCP 配置
 
@@ -2246,10 +2246,46 @@ async def collect_report_inputs(context):
 规则：
 
 - 单题和组题共用原 Run 的原流水线/当前步骤恢复，不新建任务、不换业务页面。卡片内切题只改草稿，整组显式提交并校验通过才继续；旧客户端不能仅交首题代替整组。
-- 每题使用稳定唯一的 id，候选沿现有单选 id/label/description；不传 slot_key。没有依据不造推荐选项，澄清器不隐式调用 selector 或模型。
+- 每题使用稳定唯一的 id；单选继续兼容 `id/label/description`，也可通过 `selection_mode="multiple"` 支持多选。问题组中每题独立声明选择模式。
+- 平铺与树是独立于单选/多选的选项形态：`options_mode="flat"`（默认）传普通数组；`options_mode="tree"` 传递 `children` 递归节点。树节点至少有稳定 `id` 和 `label`，可带 `description/type/selectable/children`；节点 ID 必须整棵树内唯一。任意层级均可选：显式 `selectable=True` 可选，省略时叶节点默认可选、父节点默认不可选。
+- 多选答案用 `selected_option_ids` / `selected_options`，单选继续用 `selected_option_id` / `selected_option`。需要父级业务信息时，用选中的稳定 ID 回查接口原树；平台不猜业务含义，handler 不应把整份第三方响应塞入候选。
+- 没有依据不造推荐选项，澄清器不隐式调用 selector 或模型。树形选项可以与多选组合，也可以树形单选、平铺多选或平铺单选。
 - key 在原 pipeline/step 范围内稳定；同 key 不能换题、换候选含义或在单题/组题之间切换。历史 key 回放原答案，新 key 才发起下一轮；不要用随机数、attempt 或 interrupt id 生成 key。
 - 一组只计一轮，与题目数量无关。默认 max_rounds 为 3；可配置任意正整数轮数，并在第一轮冻结；二开末轮仍禁自由文本。末轮必须有可选候选，任何题无可答方式会在创建等待前拒绝。后题依赖前答时分成下一轮，不自动聚合顺序调用，不跨步骤、兄弟任务或审批混组。
-- 问题/答案受原快照大小限制；超限拒绝，不静默截断题目或有效组答案。明确取消使 Run 终态时，平台不会为了返回 cancelled 对象复活 handler。
+- 澄清专属容量：每题最多 2,000 节点、树深 16、数组最多 2,000 项、字符串最多 16,000 字符、完整恢复/等待快照最多 256 KiB。超限明确失败，不静默裁剪题目、树节点或答案；这不会扩大其他 Runtime 快照的默认限制（80 项、4,000 字符、64,000 字节）。明确取消使 Run 终态时，平台不会为了返回 cancelled 对象复活 handler。
+
+树形多选示例：
+
+```python
+answer = await context.clarification.request(
+    key="select_forms",
+    question="请选择需要纳入页面的表单",
+    options_mode="tree",
+    selection_mode="multiple",
+    allow_free_text=False,
+    options=[
+        {
+            "id": "app-1",
+            "label": "订单应用",
+            "type": "app",
+            "children": [
+                {
+                    "id": "group-1",
+                    "label": "业务分组",
+                    "type": "formGroup",
+                    "children": [
+                        {"id": "form-a", "label": "销售订单", "type": "form"},
+                        {"id": "form-b", "label": "采购订单", "type": "form"},
+                    ],
+                },
+            ],
+        },
+    ],
+)
+selected_form_ids = answer.selected_option_ids or []
+```
+
+平铺多选只需将 `options_mode` 保持默认，并设置 `selection_mode="multiple"`；问题组中可在每题分别配置这两个字段。答案通过原 `resolve` 接口提交，单选使用 `selected_option_id`，多选使用 `selected_option_ids`，不能两者同时提交，也不能提交选项对象替代 ID。
 
 恢复时，已完成前序步骤从原外置检查点读取；缺失则失败关闭，不能从流水线首步重跑。**当前 handler 会从步骤开头再次进入，不是保留 Python 调用栈。** request/request_group 之前只放纯计算或安全读取；已完成且不能重复的模型、能力或解析工作放前序步骤并消费其结果。
 

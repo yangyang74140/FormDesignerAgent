@@ -338,6 +338,47 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.event_publisher.await_args.args[1]["proposal"], proposal)
         self.assertNotIn("component", result["output"])
 
+    async def test_name_only_request_with_existing_department_emits_only_the_new_name(self):
+        from test_form_field_list import blank_context
+        from copy import deepcopy
+
+        host = blank_context()
+        host["currentSchema"]["fields"] = [{
+            "id": "existing-department", "componentName": "DepartmentSelect",
+            "props": {"label": "部门选择", "name": "department", "multiple": True},
+        }]
+        host["canvas"]["isBlank"] = False
+        original = deepcopy(host)
+        context = SimpleNamespace(
+            inputs="生成学生信息表：字段有姓名", context=host, event_publisher=AsyncMock(),
+        )
+
+        async def generate(**kwargs):
+            field = next(item for item in kwargs["allowed_capabilities"] if item["capability"] == "form.field.define")
+            self.assertNotIn("DepartmentSelect", field["slots_schema"]["properties"]["component_name"]["enum"])
+            return kwargs["compiler"]({"plan_items": [
+                {"capability": "proposal.begin", "slots": {
+                    "title": "学生信息表", "summary": "新增姓名字段", "result_kind": "form_fields", "mode": "append",
+                }},
+                {"capability": "form.field.define", "slots": {
+                    "client_ref": "student-name", "component_name": "Input", "label": "姓名", "name": "student_name",
+                }},
+            ]}, None)
+
+        context.native_capability = SimpleNamespace(generate=generate)
+        result = await self.agent.generate_form_proposal(context)
+        self.assertEqual(result["status"], "completed", result)
+        proposal = result["output"]["form_proposal"]
+        self.assertEqual(proposal["status"], "ready", proposal)
+        assert_action_draft(self, proposal)
+        self.assertEqual(proposal["presentation"]["title"], "学生信息表")
+        self.assertEqual([action["payload"]["componentName"] for action in proposal["actions"]], ["Input"])
+        self.assertEqual(proposal["actions"][0]["payload"]["props"]["label"], "姓名")
+        self.assertEqual(host, original)
+        context.event_publisher.assert_awaited_once_with("form.proposal.completed", {
+            "block_id": "form_proposal", "title": "表单设计提案", "status": "ready", "proposal": proposal,
+        })
+
     async def test_missing_host_context_returns_non_executable_clarification(self):
         context = SimpleNamespace(inputs="新增字段", context={}, event_publisher=AsyncMock())
 

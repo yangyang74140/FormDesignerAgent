@@ -146,7 +146,7 @@ answers 必须覆盖全部题目。自由文本仅在 input_enabled 允许时提
 - [ ] 接收 `form.proposal.completed` 完整载荷；若平台只交付标准步骤完成事件，接入等价最终 output 通道。
 - [ ] 两个通道同时到达时去重；同一 `proposalId` 的内容指纹不一致时拒绝覆盖。
 - [ ] SSE 重连按事件 ID 去重；取消、截断、失败不产生可应用结果。
-- [ ] “换一换”先获取最新上下文，再生成新 `proposalId`；旧卡片标记为被替换并禁止继续应用。
+- [x] 2026-11-26 ai-chat 本地源码：`shared.form-create-confirm` 与 `shared.form-change-confirm` 的“重新生成”共用 `context.onRegenerate()`，先清空末轮全部 AI 内容并使旧卡失效，保留原问题和此前历史，以原请求快照发送 `retry_last_turn: true`；不读取最新上下文、不追加用户消息，失败保持清空。同次受理未知请求使用原幂等键恢复；仅末轮终态且原快照仍在内存时开放。其他组件需自行接入，清空聊天不撤销画布，宿主仍须复验原 revision。源码接入不代表发布或部署。
 - [ ] 卡片目标固定为生成时的节点，不随用户切换选中组件而改变。
 - [ ] 已应用提案不能换一组动作子集再次执行；希望应用剩余项时基于新 revision 生成新 proposalId。
 
