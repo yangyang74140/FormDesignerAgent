@@ -94,7 +94,35 @@
 
 `proposal.needs_clarification` 的 IR 保留 summary/question/choices/code，增加可选 `scenario_options`：恰好三个只含非空 label/description 的具体场景，标签不能重复或包含“其他”，不能同时提供非空 choices。编译器追加第四项“其他”，输出 proposal.clarificationOptions，每项为稳定 id/label/description；场景项 ID 为 scenario-1 至 scenario-3，其他为 other。此列表只有询问语义，不是动作草稿或宿主执行能力声明。普通定位/属性澄清仍可只含 question/choices，不为凑四项捏造目标。
 
-前序内部步骤冻结候选，等待步骤调用平台原生 clarification.request；答案用冻结 ID 查回标签，文本必须非空，未知 ID/答案类型失败关闭。其他入口通过第二个稳定问题收集用途。取消为 no_change，缺少平台澄清接口时保留 needs_clarification；两者均无动作和应用卡。最终编译收到原需求和答案，保留原始约束并按宿主能力重新校验。选择推荐不等于应用确认。恢复检查点及平台事件接入见包 README 与三端接入说明。
+前序内部步骤冻结候选，等待步骤调用平台原生 clarification.request；答案用冻结 ID 查回标签与说明，一并传入后续意图分析，避免选项的语义细节丢失；文本必须非空，未知 ID/答案类型失败关闭。其他入口通过第二个稳定问题收集用途。取消为 no_change，缺少平台澄清接口时保留 needs_clarification；两者均无动作和应用卡。最终编译收到原需求和答案，保留原始约束并按宿主能力重新校验。选择推荐不等于应用确认。恢复检查点及平台事件接入见包 README 与三端接入说明。
+
+### 无表单实例的前置引导
+
+2026-11-27 用户确认：当前宿主以 `currentSchema.fields=[]` 且 `canvas.isBlank=true` 表示无表单实例；不以 formId、选中状态或缺失上下文推断。已有非空 fields 即使 isBlank=true 也不能视为无表单。用户要求新增/删除/修改字段且无表单时，必须先引导，不能因字段明确而自动新建或丢弃字段需求。明确要求生成表单时不重复确认。
+
+无表单时模型状态项目 `proposal.*.slots.request_intent` 必填，枚举 form_creation（生成表单）、field_change（字段操作）、other（查询/解释等）；Native Capability schema 和生产编译回调同时校验。意图由模型语义分类而非关键词判断，此约束不证明模型一定理解了所有自然语言。编译器在字段能力、位置和旧目标解析之前，将 field_change、增量编排或字段/属性歧义转为固定非执行 `needs_clarification`。`request_intent` 只属输入 IR，不复制到最终执行草稿，也不接受模型声明的确认授权。
+
+引导输出 `clarificationKind=form_creation_required`、diagnostics.code=FORM_CREATION_REQUIRED、question 与 clarificationOptions；稳定选项 create-form（生成表单，保留原字段要求）和 cancel（取消，本次需求结束）。`formCreationFingerprint` 绑定规范化宿主快照；没有 actions、mode/actionVersion 或应用 presentation。这沿用真实平台澄清模块，不新增自定义确认卡或平台事件。
+
+等待使用 `clarification.request(key="form_creation_confirmation", options=固定选项, allow_free_text=false, max_rounds=128)`。create-form 展示“先准备空白表单，再添加字段”，仅 selected/create-form 允许准备草稿并进入下面的逐题循环；selected/cancel 或 cancelled 直接 no_change。自由文本、未知选项与 exhausted 失败关闭。无 SDK 时只保留非执行引导。内部检查点的 formCreationConfirmation 绑定 proposalId 与宿主指纹，后续步骤复验，不接受旧快照、旧提案或自行填入的模型确认字段。
+
+### 确认后的逐题字段澄清循环
+
+2026-11-27 用户修订：引导仅为第一道分支；确认后若信息不足必须继续循环。用户另确认当前仓库先实现草稿，不立即创建真实空表。不得更新宿主 hasCurrentForm/currentSchema 或宣称真实创建；草稿 hasCurrentForm=false、draftFormSchema={fields:[]}，isClarifyingField/pendingIndex 只描述非执行需求状态。最终依然交付已有动作草稿及新建确认卡，由宿主应用、撤销与保存。
+
+无表单字段操作的状态槽位必须包含 `field_requirements`，格式为 `{fields:[部分字段对象],unsupported_reason?:非空支持边界说明}`，最多20个字段。只允许原有七槽位；未知要求必须保存在 unsupported_reason，不能静默丢弃。字段对象可以为空：生成一个字段用 `[{}]`；生成姓名字段用 `[{label:"姓名"}]`；未说明控件、必填或其他属性不能提前写值。Python 冻结为 proposal.fieldClarification，最终步骤使用这些信息收集，不再调用模型补猜。缺少 field_requirements 时生产编译回调明确失败。自然语言的初始提取仍依赖模型，确定性校验不证明所有用户要求都已保留。
+
+依字段原顺序，每次仅问一题，先 label，再 component_name，再该组件属性。组件候选只来自本地九组件与宿主有效新增授权的交集；不预选，不把普通/随便一个框解释为 Input。已明确值不重复问；同槽位的无效或模糊回答在下一稳定 key 继续。名称/占位提示输入文本，类型接受本题选项或明确组件名称，required 接受明确布尔语义。选项组件必须提供真实 label/value（JSON数组或逐行“显示名=业务值”），不猜序号；无业务值继续追问。每个题面只询问当前属性，不把类型、必填、提示一起抛出。
+
+新增七槽位的当前边界不变：可询问宿主授权的 required/placeholder，以及选项组件的静态 options；不能据属性编辑能力推断新字段能配置最大长度、日期时间、数字范围、单位、上传、禁用或动态数据源。明确无法表达的要求整批 unsupported，不静默采用其他组件或丢要求。删除、移动、转换不存在节点不能被解释为创建新字段。组件专有属性待新增协议及真实宿主能力核验后扩展。
+
+固定出口：信息充足则整体编译生成提案；取消则 no_change 并清理 pending；暂停/预算耗尽则非执行 needs_clarification 并保留 pending。用户选“剩下稍后编辑”或明确说“先这样，剩下我后面在设计器改”，只跳过当前及其后可选属性，summary 标注待编辑；缺 label、类型或选项组件真实 options 时只能停止追问并保留草稿，不能违背既有可编译契约猜必需值。新路径编译不补 required=false，保持未指定属性缺省；不改变旧生成路径的默认行为。缺 name/client_ref 时确定性分配 field_N 并经过原有命名规则复验，这不是默认业务元信息。
+
+正在澄清时，新需求不能填入当前槽位；识别到“新增/修改/删除…字段/表单/标题”先问是否完成当前字段。选择继续则暂存新需求、继续原字段；明确“先把上一个字段放一放”或选暂停则保留半成品及 queuedRequests，返回非执行结果。当前实现不自动执行排队的新需求或切换真实表单，消费端需使用最新 context 另发请求。文本控制按明确用语处理，不能声称覆盖任意自然语言的暂停/转题理解。
+
+暂停等非执行输出的 fieldClarification 包含 draftId、hostFingerprint、resumeFingerprint、fields、deferred、pendingIndex（已进入提问时）、round、status、isClarifyingField、hasCurrentForm=false、draftFormSchema、originalRequest 和 queuedRequests。业务下一轮输入 `{resume_field_clarification: 上次完整非执行proposal}` 时不重跑模型；复验部分字段和 deferred，按排除 requestId 的规范化快照核对 resumeFingerprint，允许新 requestId，但能力/画布/revision 变化拒绝。恢复重新原生确认，再按已确认值继续，不自动复用创建授权。
+
+循环题 key 由草稿身份、当前轮次、当前字段与错误/转题状态确定，原生 request 显式 max_rounds=128，最多120题后保留草稿，exhausted 也不生成；可以通过业务恢复继续，不宣称平台支持无限单次 Run。题目依赖前答所以不使用 request_group，不在等待重入调用模型。宿主快照在收集前、每次回答后和最终编译时复验；取消、旧快照、非法选项均不交付部分动作。只在足够信息时结构化编译 `form_fields + replace_empty_form`，至少一个字段；最终提案无 fieldClarification 或第二份字段清单。真实平台等待、恢复与消费端需联调，本地 SDK 替身测试不代表部署。
 
 ### 字段槽位草稿
 

@@ -13,7 +13,8 @@ purpose: 基于宿主真实能力生成 form-agent.v1 表单设计提案
 - `form_generation/proposal.py`：统一提案入口、状态路由和字段动作编译。
 - `form_generation/drafts.py`：单一动作草稿封装、动作 ID 与依赖结构校验。
 - `form_generation/guidance.py`：场景推荐校验、检查点输入与平台等待式澄清、答案映射和取消。
-- `form_generation/field_guidance.py`：字段槽位冻结、原生分组回答、补丁整体复验、候选换组和回退。
+- `form_generation/field_guidance.py`：既有表单的字段槽位冻结、原生分组回答、补丁整体复验、候选换组和回退。
+- `form_generation/field_clarification.py`：无表单确认后的部分字段、逐题循环、模糊回答重问、暂停恢复与整体编译。
 - `form_generation/action_rules/`：表单动作注册表与组件动作、规则/公式动作校验。
 - `form_generation/components/`：公共属性定义与统一注册；`definitions/` 按组件名维护属性文件，`definitions/_shared/` 维护实际复用的族处理。
 - `form_generation/properties.py`：属性提案编排、宿主授权与批次依赖校验。
@@ -142,6 +143,18 @@ ai-chat 从 actions 派生预览并维护唯一草稿。取消或删除新增建
 ## 运行编排
 
 `design_form` intent 指向单一 `form_proposal_generation` Pipeline，依次执行 `form_requirement_preparation`（内部生成并冻结提案或问题）、`form_requirement_confirmation`（平台等待式澄清）、原 `form.proposal.generate` 最终步骤（交付或根据答案重新编译）。前两步只输出 internal 数据，最终仍只有 `{form_proposal: proposal}` 与一次 `form.proposal.completed`。具体步骤 key 以注册常量为准。
+
+### 无表单实例时的字段操作前置确认
+
+当前宿主已约定 `currentSchema.fields=[]` 且 `canvas.isBlank=true` 表示无表单实例；即使 target 有 formId，也不据此绕过引导。单独缺少快照、空选中或缺少 isBlank 不能证明无表单。无表单时用户要求新增、删除或修改字段，先输出非执行引导，选项为“生成表单”和“取消”，不自动创建、应用或丢弃原字段要求。已有表单继续按现有增删改路径处理。
+
+无表单时 Native Capability 的每个 proposal 状态都要求 `request_intent=form_creation|field_change|other`；模型按完整语义分类，运行时校验不能缺省。`field_change` 或空画布上的增量修改由编译器转为 `clarificationKind=form_creation_required`，不输出 actions 或应用卡。分类依赖模型语义判断，不能宣称已确定性证明自然语言意图。明确请求生成表单仍走原路径。
+
+平台原生 `clarification.request` 使用稳定 key `form_creation_confirmation`，仅接受固定选项，不接收自由文本作为确认。确认仅允许准备空白表单草稿；`hasCurrentForm=false`、`draftFormSchema.fields=[]` 不代表创建了真实画布或修改宿主 context。随后进入[逐题字段澄清循环](./specs/actions.md#确认后的逐题字段澄清循环)，字段信息完整才生成 `form_fields + replace_empty_form` 提案。初始状态项目新增 `field_requirements={fields:[部分字段对象],unsupported_reason?}`，只提取用户明确值；生成一个字段用 `[{}]`，生成姓名字段只保留 label，不猜 Input 或 required=false。生产回调缺此结构时失败关闭。新模块 `form_generation/field_clarification.py` 保存部分元信息、逐题等待与整体编译，原有非空画布分组引导不受影响。
+
+每次仅问一题，固定名称→组件类型→该组件已授权且可由新增七槽位表达的属性；模糊回答继续同一槽位的新轮次，不重复已明确值。必填、占位提示可延后，真实 options 是选项组件必需信息。用户选择“剩下稍后编辑”后，仅在名称/类型/真实 options 齐备时生成，未指定的 required 不补 false，summary 标明待编辑；基础元信息仍缺则保存非执行草稿。上传、日期时间、最大长度、数字范围和单位未开放到新增协议，明确拒绝而不猜配置。字段业务 name/client_ref 缺省可确定性分配，再走原命名规则校验，不由名称推断控件或属性。
+
+等待每题使用字段草稿身份、轮次和已知内容生成稳定 key；全流程 max_rounds=128，每次恢复最多120条新问题，超预算/平台 exhausted 保留非执行草稿而非猜测生成。等待重放不调用模型；收集完直接结构化编译，只交付一次最终事件。取消返回 no_change，暂停保留 fieldClarification（含原需求、pendingIndex、fields、deferred、queuedRequests、状态）；中途新需求先询问继续当前字段还是暂停，不覆盖 pending。新需求记录为待处理，跨需求执行仍须消费端携带最新宿主 context 另发请求，不伪装已执行。下一次可用原业务输入 `{resume_field_clarification: 上次未完成的proposal}` 恢复，复验字段结构及除 requestId 外的宿主快照，再原生确认；revision/能力变化拒绝恢复。此为项目业务输入，不新增平台 SDK 方法或事件。无 SDK 保留非执行状态。详见[动作规范](./specs/actions.md#无表单实例的前置引导)。
 
 ### 场景引导与槽位补齐
 

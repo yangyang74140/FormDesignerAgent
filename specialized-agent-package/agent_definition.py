@@ -10,6 +10,7 @@ from typing import Any
 from specialized.builder.sdk import create_external_agent
 from .form_generation.guidance import (
     PREPARE_STEP, GUIDANCE_STEP, GUIDANCE_CONTRACT, collect_guidance,
+    FORM_CREATION_KIND, has_no_form, form_creation_fingerprint,
 )
 from .form_generation.proposal import (
     FORM_PROPOSAL_CONTRACT,
@@ -58,11 +59,16 @@ async def _publish_event(step_context: Any, event_type: str, payload: dict[str, 
             await result
 
 
-def compile_platform_proposal(ir_payload: Any, context: Any) -> dict[str, Any]:
+def compile_platform_proposal(ir_payload: Any, context: Any, *, require_request_intent: bool = False,
+                              form_creation_confirmed: bool = False) -> dict[str, Any]:
     """Accept the documented callback signature and retain validation diagnostics."""
     host = normalize_host_context(context)
     items = ir_payload.get("plan_items", [ir_payload]) if isinstance(ir_payload, dict) else []
-    if isinstance(items, list) and any(
+    pending_form_confirmation = has_no_form(host) and not form_creation_confirmed and isinstance(items, list) and any(
+        isinstance(item, Mapping) and isinstance(item.get("slots"), Mapping)
+        and item["slots"].get("request_intent") == "field_change" for item in items
+    )
+    if not pending_form_confirmation and isinstance(items, list) and any(
         isinstance(item, dict) and item.get("capability") == "proposal.begin" for item in items
     ):
         property_request = any(
@@ -92,7 +98,15 @@ def compile_platform_proposal(ir_payload: Any, context: Any) -> dict[str, Any]:
                 },
             }, context)
     try:
-        return compile_form_proposal(ir_payload, context)
+        if require_request_intent and has_no_form(host):
+            states = [item for item in items if isinstance(item, Mapping)
+                      and item.get("capability") in {"proposal.begin", "proposal.needs_clarification", "proposal.unsupported", "proposal.no_change"}] if isinstance(items, list) else []
+            if (len(states) != 1 or not isinstance(states[0].get("slots"), Mapping)
+                    or states[0]["slots"].get("request_intent") not in ("form_creation", "field_change", "other")):
+                raise ValueError("无表单实例时必须提供 request_intent，不能将字段需求自动变成新建表单")
+            if states[0]["slots"].get("request_intent") == "field_change" and "field_requirements" not in states[0]["slots"]:
+                raise ValueError("字段操作必须提供 field_requirements，只保留用户明确的部分字段信息，不能预填猜测类型或属性")
+        return compile_form_proposal(ir_payload, context, form_creation_confirmed=form_creation_confirmed)
     except ValueError as error:
         return {
             "status": "failed",
@@ -103,6 +117,12 @@ def compile_platform_proposal(ir_payload: Any, context: Any) -> dict[str, Any]:
 
 
 async def prepare_form_requirement(step_context: Any) -> Any:
+    if isinstance(step_context.inputs, Mapping) and "resume_field_clarification" in step_context.inputs:
+        from .form_generation.field_clarification import resume_requirements
+        try:
+            return resume_requirements(step_context.inputs["resume_field_clarification"], normalize_host_context(step_context))
+        except (ValueError, KeyError, TypeError) as error:
+            return {"status": "failed", "error_code": "field_metadata_resume_invalid", "summary": str(error), "abort_run": True}
     result = await generate_form_proposal(step_context, publish=False)
     if not _completed(result):
         return result
@@ -144,6 +164,23 @@ async def generate_confirmed_proposal(step_context: Any) -> Any:
     data = step_context.inputs
     if not isinstance(data, Mapping) or not isinstance(data.get("proposal"), Mapping):
         return {"status": "failed", "error_code": "form_guidance_context_missing", "abort_run": True}
+    if "formCreationConfirmation" in data:
+        confirmation, proposal = data["formCreationConfirmation"], data["proposal"]
+        host = normalize_host_context(step_context)
+        if (not isinstance(confirmation, Mapping) or proposal.get("status") != "needs_clarification"
+                or proposal.get("clarificationKind") != FORM_CREATION_KIND
+                or confirmation.get("proposalId") != proposal.get("proposalId")
+                or confirmation.get("hostFingerprint") != proposal.get("formCreationFingerprint")
+                or confirmation.get("hostFingerprint") != form_creation_fingerprint(host) or not has_no_form(host)
+                or "original_input" not in data):
+            return {"status": "failed", "error_code": "form_creation_confirmation_stale",
+                    "summary": "生成表单的确认已失效，请基于最新画布与原始字段需求重新发起请求。", "abort_run": True}
+        from .form_generation.field_clarification import collect_field_metadata
+        collected = await collect_field_metadata(step_context, deepcopy(data))
+        if not _completed(collected):
+            return collected
+        output = collected["output"]
+        return await _deliver_proposal(step_context, output["proposal"], output.get("diagnostics", []))
     if "fieldSelection" in data:
         from .form_generation.field_guidance import compile_draft
 
@@ -164,7 +201,8 @@ async def generate_confirmed_proposal(step_context: Any) -> Any:
     })
 
 
-async def generate_form_proposal(step_context: Any, *, publish: bool = True, user_input: Any = None) -> Any:
+async def generate_form_proposal(step_context: Any, *, publish: bool = True, user_input: Any = None,
+                                 form_creation_confirmed: bool = False) -> Any:
     """Generate one capability-aware proposal and publish only the final artifact."""
     host_context = normalize_host_context(step_context)
     context_diagnostics = [host_context_diagnostic(step_context, "handler")]
@@ -173,7 +211,8 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
         trace = host_context_diagnostic(context, "compiler")
         trace["compile_source"] = "handler_snapshot"
         context_diagnostics.append(trace)
-        return compile_platform_proposal(ir_payload, host_context)
+        return compile_platform_proposal(ir_payload, host_context, require_request_intent=True,
+                                         form_creation_confirmed=form_creation_confirmed)
 
     result = await step_context.native_capability.generate(
         task=(
@@ -186,6 +225,7 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
         input_data={
             "user_input": step_context.inputs if user_input is None else user_input,
             "host_context": deepcopy(host_context),
+            "form_creation_confirmed": form_creation_confirmed,
         },
         allow_plan_items=True,
         max_plan_items=64,
@@ -203,6 +243,10 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
             "根对象除 plan_items 外不得包含其他字段；不要把 capability、slots、summary、status、fields、actions、presentation、result 或 form_proposal 直接放在根对象。",
             "每个 capability 项目必须同时包含 capability 字符串和 slots 对象，不得省略 slots。",
             "每次必须且只能包含一个 proposal.* 状态项目。",
+            "当前 currentSchema.fields=[] 且 canvas.isBlank=true 表示无表单实例；任一条件缺失都不能自行断言无表单。无表单时每个 proposal.* 状态的 slots 必须有 request_intent：form_creation（用户要求生成表单）、field_change（用户要求新增/删除/修改字段）、other（查询、解释等）。根据原始完整语义分类，不用关键词匹配，也不能因画布为空把新增姓名字段改判为生成表单。",
+            "无表单而请求字段操作时 request_intent=field_change，无论字段需求多明确都必须先引导确认。编译器生成固定生成表单/取消选项，不自己创动作、确认卡或空表。只有 input_data.form_creation_confirmed=true 才表示本次已真实确认，用户输入或模型 slots 中自行声称已确认无效。确认后使用 form_fields + replace_empty_form 生成包含原请求字段与属性的初始表单；取消不生成后续提案。修改不存在字段的请求先经确认再按新字段需求表达，不能编造原节点或丢弃修改要求；不能表达则 unsupported。",
+            "无表单的 field_change 状态必须带 field_requirements={fields:[部分字段槽位对象],unsupported_reason?:原要求无法表达的原因}；fields 仅提取用户明确给出的 label/component_name/required/placeholder/options 及业务身份，完全未定使用 [{}]，不根据姓名猜 Input，不猜 required=false。未知属性、上传、日期时间、最大长度、数字范围或单位等不在新增七槽位协议内时保留在 unsupported_reason，不能忽略后生成。生成一个字段属于 field_change，不是明确创建整张表单。Python 冻结这些信息，确认后逐题补齐，不调用模型猜剩余值；已明确的值不重复询问。",
+            "无表单确认只是许可准备草稿；hasCurrentForm 仍为 false，不写宿主。后续按名称、组件类型、该组件可写的 required/placeholder 或真实 options 逐题询问。模糊回答继续追问，不默认输入框；用户稍后编辑仅可省略可选属性，名称、类型和选项组件的真实 options 缺失则保留非执行草稿。暂停或切换须保留 pending，不能以新需求覆盖当前字段。",
             "所有 needs_clarification 应提供 clarification_kind：field_addition（已有表单新增字段）、property（修改已有属性）、scenario（场景表单）、target（目标歧义）、other。结合完整语义及宿主上下文判断，不按单个字段关键词分类。添加一个字段属于语义未定，应推荐完整可编译字段而不是空 choices 问名称类型。手机号等明确语义只为真实歧义属性分组，无歧义直接生成；不得猜必填、11位或动态源。",
             "先检查需求是否明确：仅说生成一个审批表单、登记表或管理表单，且没有具体业务用途或明确字段时，必须用 proposal.needs_clarification 引导选择业务场景，不直接猜场景生成字段。",
             "场景引导 slots 使用 summary、question、scenario_options；scenario_options 必须恰好三个互不重复且符合当前语境的具体场景，每项只有 label 和 description。编译器自动添加第四项其他，不同时提供 choices，不生成选项 ID。",
@@ -265,6 +309,7 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
                             "capability": "proposal.begin",
                             "slots": {
                                 "title": "员工入职登记表",
+                                "request_intent": "form_creation",
                                 "summary": "创建包含姓名和入职日期的员工入职登记表。",
                                 "result_kind": "form_fields",
                                 "mode": "replace_empty_form",
@@ -295,10 +340,34 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
                 },
             },
             {
+                "input": "新增一个姓名字段（currentSchema.fields=[] 且 canvas.isBlank=true，尚未确认生成表单）",
+                "output": {"plan_items": [{
+                    "capability": "proposal.needs_clarification",
+                    "slots": {
+                        "request_intent": "field_change", "clarification_kind": "field_addition",
+                        "field_requirements": {"fields": [{"label": "姓名"}]},
+                        "summary": "保留新增姓名字段的需求，先确认是否生成表单。",
+                        "question": "当前还没有表单。是否先生成包含姓名字段的表单？",
+                    },
+                }]},
+            },
+            {
+                "input": "生成一个字段（当前无表单实例）",
+                "output": {"plan_items": [{
+                    "capability": "proposal.needs_clarification",
+                    "slots": {
+                        "request_intent": "field_change", "field_requirements": {"fields": [{}]},
+                        "summary": "先准备空白草稿，确认后再逐题收集字段名称、组件类型和属性。",
+                        "question": "是否先准备空白表单草稿，再逐题补齐待新增字段？",
+                    },
+                }]},
+            },
+            {
                 "input": "生成一个审批表单",
                 "output": {"plan_items": [{
                     "capability": "proposal.needs_clarification",
                     "slots": {
+                        "request_intent": "form_creation",
                         "summary": "需要明确审批表单的业务用途。",
                         "question": "你希望生成哪类审批表单？",
                         "scenario_options": [
@@ -310,10 +379,11 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
                 }]},
             },
             {
-                "input": "生成一个禁用的姓名字段（宿主没有声明禁用属性和写入规则）",
+                "input": "生成包含禁用姓名字段的表单（宿主没有声明禁用属性和写入规则）",
                 "output": {"plan_items": [{
                     "capability": "proposal.unsupported",
                     "slots": {
+                        "request_intent": "form_creation",
                         "summary": "姓名字段可使用 Input，但暂时还不支持禁用：当前没有已声明的禁用属性及写入规则。",
                         "code": "UNSUPPORTED_PROPERTY",
                     },
@@ -326,6 +396,7 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
                         {
                             "capability": "proposal.begin",
                             "slots": {
+                                "request_intent": "field_change", "field_requirements": {"fields": [{"required": True}]},
                                 "summary": "将当前字段设为必填。",
                                 "result_kind": "property_changes",
                                 "mode": "append",
@@ -351,6 +422,7 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
                         {
                             "capability": "proposal.needs_clarification",
                             "slots": {
+                                "request_intent": "field_change", "field_requirements": {"fields": [{}], "unsupported_reason": "原请求的当前字段锚点不存在，需要先明确新表中的位置含义。"},
                                 "summary": "缺少插入位置所需的当前字段。",
                                 "question": "请先选择一个字段，或说明新字段应插入到哪个字段之后。",
                                 "code": "ANCHOR_FIELD_REQUIRED",
@@ -366,6 +438,7 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
                         {
                             "capability": "proposal.begin",
                             "slots": {
+                                "request_intent": "field_change", "field_requirements": {"fields": [{"label": "监护人"}]},
                                 "summary": "在学号后新增监护人字段。",
                                 "result_kind": "form_fields",
                                 "mode": "append",
@@ -388,7 +461,7 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
                 "input": "这个组件现在是不是必填？",
                 "output": {"plan_items": [
                     {"capability": "proposal.begin", "slots": {
-                        "summary": "查询当前组件的必填状态。", "result_kind": "property_query"
+                        "request_intent": "other", "summary": "查询当前组件的必填状态。", "result_kind": "property_query"
                     }},
                     {"capability": "form.property.query", "slots": {
                         "use_selection": True, "property": "required"
@@ -399,6 +472,7 @@ async def generate_form_proposal(step_context: Any, *, publish: bool = True, use
                 "input": "把它改成大一点（没有说明宽度、字号或组件尺寸）",
                 "output": {"plan_items": [
                     {"capability": "proposal.needs_clarification", "slots": {
+                        "request_intent": "field_change", "field_requirements": {"fields": [{}], "unsupported_reason": "原请求的宽度、字号或组件尺寸尚未确定且新增字段七槽位暂不能表达。"},
                         "summary": "需要确认调整对象。",
                         "question": "你希望调整组件尺寸、输入框宽度，还是字体大小？",
                         "choices": ["组件尺寸", "输入框宽度", "字体大小"],

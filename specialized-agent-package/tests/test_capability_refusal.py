@@ -174,10 +174,11 @@ class CapabilityRefusalBoundaryTests(unittest.IsolatedAsyncioTestCase):
         context["capabilities"]["components"] = {"Input": {"writableProps": ["label", "name", "required"]}}
         for extra, reason in (({"disabled": True}, "暂时还不支持禁用"), ({"width": 200}, "width")):
             scenarios.append((deepcopy(context), [
-                {"capability": "proposal.begin", "slots": {"summary": "生成禁用的姓名字段", "result_kind": "form_fields"}},
+                {"capability": "proposal.begin", "slots": {"request_intent": "form_creation", "summary": "生成禁用的姓名字段", "result_kind": "form_fields"}},
                 {"capability": "form.field.define", "slots": {"client_ref": "person-name", "component_name": "Input", "label": "姓名", "name": "person_name", **extra}},
             ], reason))
         action_context = blank_context()
+        action_context["canvas"]["isBlank"] = False
         action_context["capabilities"].pop("components")
         action_context["capabilities"]["actions"] = ["form.add_component"]
         scenarios.append((action_context, [
@@ -215,7 +216,7 @@ class CapabilityRefusalBoundaryTests(unittest.IsolatedAsyncioTestCase):
         async def generate(**kwargs):
             field = next(item for item in kwargs["allowed_capabilities"] if item["capability"] == "form.field.define")
             self.assertEqual(field["slots_schema"]["properties"]["component_name"]["enum"], ["Input"])
-            return kwargs["compiler"]({"plan_items": [{"capability": "proposal.no_change", "slots": {"summary": "测试"}}]}, None)
+            return kwargs["compiler"]({"plan_items": [{"capability": "proposal.no_change", "slots": {"request_intent": "other", "summary": "测试"}}]}, None)
 
         step.native_capability = SimpleNamespace(generate=generate)
         await self.agent.generate_form_proposal(step)
@@ -227,7 +228,7 @@ class CapabilityRefusalBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
         async def generate(**kwargs):
             self.assertNotIn("form.field.define", [item["capability"] for item in kwargs["allowed_capabilities"]])
-            return kwargs["compiler"]({"plan_items": [{"capability": "proposal.unsupported", "slots": {"summary": "缺少组件目录", "code": "MISSING_COMPONENT_CATALOG"}}]}, None)
+            return kwargs["compiler"]({"plan_items": [{"capability": "proposal.unsupported", "slots": {"request_intent": "form_creation", "summary": "缺少组件目录", "code": "MISSING_COMPONENT_CATALOG"}}]}, None)
 
         step.native_capability = SimpleNamespace(generate=generate)
         result = await self.agent.generate_form_proposal(step)

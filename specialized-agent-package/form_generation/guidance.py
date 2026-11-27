@@ -2,10 +2,44 @@
 
 from collections.abc import Mapping
 from copy import deepcopy
+import hashlib
+import json
 
 PREPARE_STEP = "form_requirement_preparation"
 GUIDANCE_STEP = "form_requirement_confirmation"
 GUIDANCE_CONTRACT = "form_requirement_context.v1"
+FORM_CREATION_KIND = "form_creation_required"
+FORM_CREATION_OPTIONS = [
+    {"id": "create-form", "label": "先准备空白表单，再添加字段", "description": "进入待生成草稿；字段信息不全时逐题澄清，完成后交由宿主确认应用。"},
+    {"id": "cancel", "label": "取消", "description": "结束本次需求，不生成表单或字段变更。"},
+]
+
+
+def has_no_form(context):
+    schema, canvas = context.get("currentSchema", {}), context.get("canvas", {})
+    return schema.get("fields") == [] and canvas.get("isBlank") is True
+
+
+def form_creation_fingerprint(context):
+    return hashlib.sha256(json.dumps(context, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+
+
+def require_form_creation(proposal, context, requirements=None):
+    from .field_clarification import freeze_requirements
+
+    result = deepcopy(proposal)
+    result.update(
+        status="needs_clarification", clarificationKind=FORM_CREATION_KIND,
+        summary="当前没有表单实例，需要先确认是否根据本次字段需求生成表单。",
+        question="当前还没有表单。是否先生成包含本次字段需求的表单？",
+        clarificationOptions=deepcopy(FORM_CREATION_OPTIONS),
+        formCreationFingerprint=form_creation_fingerprint(context),
+        diagnostics=[{"code": "FORM_CREATION_REQUIRED", "message": "尚未确认生成表单，未生成或应用字段变更。"}],
+    )
+    result["fieldClarification"] = freeze_requirements(
+        requirements, result["proposalId"], result["formCreationFingerprint"])
+    result["fieldClarification"]["resumeFingerprint"] = form_creation_fingerprint({**context, "requestId": ""})
+    return result
 
 
 def scenario_options(value):
@@ -34,8 +68,10 @@ def _value(answer, key):
 def _cancelled(data):
     result = deepcopy(data)
     proposal = result["proposal"]
-    for key in ("question", "choices", "clarificationOptions"):
+    for key in ("question", "choices", "clarificationOptions", "formCreationFingerprint", "fieldClarification"):
         proposal.pop(key, None)
+    result.pop("formCreationConfirmation", None)
+    result.pop("answer", None)
     proposal.update(status="no_change", summary="已取消本次引导，未生成或应用变更。", diagnostics=[])
     return {"status": "completed", "output": result}
 
@@ -55,6 +91,20 @@ async def collect_guidance(context):
         return {"status": "completed", "output": data}
     request = getattr(getattr(context, "clarification", None), "request", None)
     if not callable(request):
+        return {"status": "completed", "output": data}
+    if proposal.get("clarificationKind") == FORM_CREATION_KIND:
+        answer = await request(
+            key="form_creation_confirmation", question=proposal["question"],
+            options=deepcopy(FORM_CREATION_OPTIONS), allow_free_text=False, max_rounds=128,
+        )
+        if _value(answer, "kind") == "cancelled" or (
+                _value(answer, "kind") == "selected" and _value(answer, "selected_option_id") == "cancel"):
+            return _cancelled(data)
+        if _value(answer, "kind") != "selected" or _value(answer, "selected_option_id") != "create-form":
+            return {"status": "failed", "error_code": "form_creation_invalid_answer", "abort_run": True}
+        data["formCreationConfirmation"] = {
+            "proposalId": proposal["proposalId"], "hostFingerprint": proposal["formCreationFingerprint"],
+        }
         return {"status": "completed", "output": data}
     options = proposal.get("clarificationOptions") or [
         {"id": f"choice-{index}", "label": label}
@@ -79,7 +129,8 @@ async def collect_guidance(context):
                 return _cancelled(data)
             text = _value(answer, "text") if _value(answer, "kind") == "text" else None
         else:
-            text = selected["label"]
+            description = selected.get("description")
+            text = f'{selected["label"]}：{description}' if description else selected["label"]
     else:
         text = _value(answer, "text") if _value(answer, "kind") == "text" else None
     if not isinstance(text, str) or not text.strip():

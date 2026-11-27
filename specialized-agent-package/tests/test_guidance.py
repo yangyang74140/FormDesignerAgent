@@ -50,11 +50,11 @@ class GuidanceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             compile_items([item])
 
-    async def test_selected_option_maps_frozen_label_and_preserves_original(self):
+    async def test_selected_option_preserves_label_and_description(self):
         context = self.context(SimpleNamespace(kind="selected", selected_option_id="scenario-2"))
         before = deepcopy(context.inputs)
         result = await guidance.collect_guidance(context)
-        self.assertEqual(result["output"]["answer"]["text"], "采购审批表单")
+        self.assertEqual(result["output"]["answer"]["text"], "采购审批表单：记录采购物品、数量和预算。")
         self.assertEqual(result["output"]["original_input"], "生成一个审批表单")
         self.assertEqual(context.inputs, before)
         call = context.clarification.request.await_args.kwargs

@@ -106,7 +106,7 @@ class PackagingTests(unittest.TestCase):
                 async def generate(**kwargs):
                     return SimpleNamespace(**kwargs["compiler"]({"plan_items": [
                         {"capability": "proposal.begin", "slots": {
-                            "summary": "生成学号字段。", "result_kind": "form_fields", "mode": "replace_empty_form",
+                            "request_intent": "form_creation", "summary": "生成学号字段。", "result_kind": "form_fields", "mode": "replace_empty_form",
                         }},
                         {"capability": "form.field.define", "slots": {
                             "client_ref": "student_no", "component_name": "Input", "label": "学号", "name": "student_no",

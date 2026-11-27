@@ -85,8 +85,8 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
 
         async def generate(**kwargs):
             self.assertEqual(kwargs["input_data"]["user_input"]["original_request"], "生成一个审批表单，包含备注")
-            self.assertEqual(kwargs["input_data"]["user_input"]["clarification_answer"]["text"], "请假审批表单")
-            return kwargs["compiler"]({"plan_items": [{"capability": "proposal.no_change", "slots": {"summary": "测试结果"}}]}, None)
+            self.assertEqual(kwargs["input_data"]["user_input"]["clarification_answer"]["text"], "请假审批表单：记录请假类型、时间和原因。")
+            return kwargs["compiler"]({"plan_items": [{"capability": "proposal.no_change", "slots": {"request_intent": "other", "summary": "测试结果"}}]}, None)
 
         context.native_capability.generate.side_effect = generate
         result = await self.agent.generate_confirmed_proposal(context)
@@ -404,7 +404,7 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
 
         async def generate(**kwargs):
             return kwargs["compiler"](
-                {"capability": "proposal.begin", "slots": {"result_kind": "form_fields"}}, context,
+                {"capability": "proposal.begin", "slots": {"request_intent": "form_creation", "result_kind": "form_fields"}}, context,
             )
 
         context.native_capability = SimpleNamespace(generate=generate)
@@ -424,7 +424,7 @@ class OutputPreviewTests(unittest.IsolatedAsyncioTestCase):
             ("home_address", "家庭住址", "Input.TextArea"), ("remarks", "备注", "Input.TextArea"),
         ]
         items = [{"capability": "proposal.begin", "slots": {
-            "summary": "生成学生信息表。", "result_kind": "form_fields", "mode": "replace_empty_form",
+            "request_intent": "form_creation", "summary": "生成学生信息表。", "result_kind": "form_fields", "mode": "replace_empty_form",
         }}]
         for ref, label, component in definitions:
             slots = {"client_ref": ref, "component_name": component, "label": label, "name": ref}

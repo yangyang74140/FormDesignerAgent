@@ -78,6 +78,7 @@ class ActionVersionCompatibilityTests(unittest.TestCase):
 
     def test_direct_add_also_checks_creation_catalog(self):
         context = mixed_context()
+        context["canvas"]["isBlank"] = False
         result = compile_items([
             {"capability": "proposal.begin", "slots": {"result_kind": "form_actions"}},
             {"capability": "form.add_component", "slots": {"payload": {"clientRef": "new-switch", "componentName": "Switch", "props": {"required": True}, "target": {"kind": "root"}}}},
@@ -100,6 +101,7 @@ class ActionVersionCompatibilityTests(unittest.TestCase):
             context = mixed_context()
             context["capabilities"].pop("supportedActionVersions")
             context["supportedActionVersions"] = versions
+            context["canvas"]["isBlank"] = False
             result = compile_items([
                 {"capability": "proposal.begin", "slots": {"result_kind": "form_actions"}},
                 {"capability": "form.remove_component", "slots": {"payload": {"nodeId": "saved-note"}}},
@@ -107,6 +109,7 @@ class ActionVersionCompatibilityTests(unittest.TestCase):
             self.assertEqual(result["status"], "unsupported", result)
             self.assertNotIn("actions", result)
             if versions != ["1.0"] and versions != {"1.0": True}:
+                context["canvas"]["isBlank"] = True
                 result = compile_fields([FIELD], context)
                 self.assertEqual(result["status"], "unsupported", result)
                 self.assertNotIn("actions", result)

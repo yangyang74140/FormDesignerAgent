@@ -169,6 +169,19 @@ def proposal_capabilities(context: Mapping[str, Any] | None = None) -> list[dict
             },
         },
     ]
+    from .guidance import has_no_form
+    from .field_clarification import requirements_schema
+
+    for entry in capabilities:
+        if entry["capability"] in _STATE_CAPABILITIES:
+            schema = entry["slots_schema"]
+            schema["properties"]["field_requirements"] = requirements_schema()
+            schema["properties"]["request_intent"] = {
+                "type": "string", "enum": ["form_creation", "field_change", "other"],
+                "description": "根据原始需求分类：生成表单、增删改字段或其他；不能因画布为空将字段操作改判为生成表单。",
+            }
+            if context is not None and has_no_form(context):
+                schema["required"].append("request_intent")
     if not components:
         capabilities = [entry for entry in capabilities if entry["capability"] != _FIELD_CAPABILITY]
     return capabilities + action_capabilities() + property_capabilities()
@@ -230,10 +243,12 @@ def normalize_host_context(step_context: Any) -> dict[str, Any]:
     }
 
 
-def compile_form_proposal(ir_payload: Any, step_context: Any) -> dict[str, Any]:
+def compile_form_proposal(ir_payload: Any, step_context: Any, *, form_creation_confirmed: bool = False,
+                          preserve_unspecified_properties: bool = False) -> dict[str, Any]:
     """Compile IR, explaining unavailable capabilities without executable actions."""
     try:
-        return _compile_form_proposal(ir_payload, step_context)
+        return _compile_form_proposal(ir_payload, step_context, form_creation_confirmed=form_creation_confirmed,
+                                      preserve_unspecified_properties=preserve_unspecified_properties)
     except CapabilityUnavailable as error:
         result = _compile_form_proposal({"plan_items": [{
             "capability": "proposal.unsupported",
@@ -244,16 +259,15 @@ def compile_form_proposal(ir_payload: Any, step_context: Any) -> dict[str, Any]:
         return result
 
 
-def _compile_form_proposal(ir_payload: Any, step_context: Any) -> dict[str, Any]:
+def _compile_form_proposal(ir_payload: Any, step_context: Any, *, form_creation_confirmed: bool = False,
+                           preserve_unspecified_properties: bool = False) -> dict[str, Any]:
     context = normalize_host_context(step_context)
     items = ir_payload.get("plan_items") if isinstance(ir_payload, Mapping) else None
     if not isinstance(items, list):
         items = [ir_payload]
     if not items or any(not isinstance(item, Mapping) for item in items):
         raise ValueError("提案没有有效项目或包含非法项目")
-    if any(item.get("capability") in {"form.property.rule", "form.property.linkage"} for item in items):
-        raise CapabilityUnavailable("PROPERTY_PROTOCOL_UNSUPPORTED", "规则和联动尚无已约定的统一变更协议，暂不支持。")
-    known = _STATE_CAPABILITIES | {_FIELD_CAPABILITY} | set(ACTION_KINDS) | {
+    known = _STATE_CAPABILITIES | {_FIELD_CAPABILITY, "form.property.rule", "form.property.linkage"} | set(ACTION_KINDS) | {
         entry["capability"] for entry in property_capabilities()
     }
     unknown = [item.get("capability") for item in items
@@ -280,6 +294,32 @@ def _compile_form_proposal(ir_payload: Any, step_context: Any) -> dict[str, Any]
     }
     if context.get("requestId"):
         base["requestId"] = context["requestId"]
+
+    from .guidance import has_no_form, require_form_creation
+
+    intent = slots.get("request_intent")
+    if intent is not None and intent not in ("form_creation", "field_change", "other"):
+        raise ValueError("request_intent 不合法")
+    needs_form = has_no_form(context) and (
+        intent == "field_change"
+        or (state == "begin" and (slots.get("mode") == "append" or slots.get("result_kind") in ("form_actions", "form_changes", "property_changes")))
+        or (state == "needs_clarification" and (slots.get("clarification_kind") in ("field_addition", "property") or "field_draft" in slots))
+    )
+    if needs_form and not form_creation_confirmed:
+        requirements = deepcopy(slots.get("field_requirements"))
+        if any(item.get("capability") in {"form.remove_component", "form.move_component", "form.convert_component"} for item in items):
+            if requirements is None:
+                requirements = {"fields": [{}]}
+            if isinstance(requirements, dict):
+                requirements["unsupported_reason"] = "当前没有可删除、移动或转换的旧字段，不能把原操作改成新增；请先明确新的表单需求。"
+        return _completed(require_form_creation(base, context, requirements))
+    if any(item.get("capability") in {"form.property.rule", "form.property.linkage"} for item in items):
+        raise CapabilityUnavailable("PROPERTY_PROTOCOL_UNSUPPORTED", "规则和联动尚无已约定的统一变更协议，暂不支持。")
+    if has_no_form(context) and form_creation_confirmed and state == "no_change":
+        raise ValueError("确认生成表单后不能静默丢弃原始字段需求")
+    if has_no_form(context) and form_creation_confirmed and state == "begin" and (
+            slots.get("result_kind") != "form_fields" or slots.get("mode") != "replace_empty_form"):
+        raise ValueError("确认生成表单后必须生成包含原字段需求的初始表单，不能继续修改不存在的字段")
 
     non_state_items = [item for item in items if item is not state_item]
     if state != "begin" and non_state_items:
@@ -343,7 +383,8 @@ def _compile_form_proposal(ir_payload: Any, step_context: Any) -> dict[str, Any]
         raise ValueError("属性 IR 必须使用 property_changes/property_query/property_undo")
     if result_kind == "form_fields":
         try:
-            _compile_form_fields(base, slots, items, context)
+            _compile_form_fields(base, slots, items, context,
+                                 preserve_unspecified_properties=preserve_unspecified_properties)
         except _AnchorRequired as error:
             base["status"] = "needs_clarification"
             base["question"] = str(error)
@@ -363,6 +404,7 @@ def _compile_form_fields(
     context: Mapping[str, Any],
     *,
     removals_before: Mapping[int, list[dict[str, Any]]] | None = None,
+    preserve_unspecified_properties: bool = False,
 ) -> None:
     mode = _text(slots.get("mode"), "replace_empty_form")
     if mode not in {"replace_empty_form", "append"}:
@@ -431,7 +473,8 @@ def _compile_form_fields(
                 raise ValueError(f"字段数量超过宿主限制: {max_fields}")
             position = _field_insertion_index(None, candidate_fields, context)
         field_slots = item.get("slots") if isinstance(item.get("slots"), Mapping) else {}
-        field = _compile_field(field_slots, context, seen_refs, seen_names)
+        field = _compile_field(field_slots, context, seen_refs, seen_names,
+                               preserve_unspecified_properties=preserve_unspecified_properties)
         if removals_before is not None:
             candidate_fields.insert(position, field)
         actions.append({
@@ -510,6 +553,7 @@ def _compile_field(
     context: Mapping[str, Any],
     seen_refs: set[str],
     seen_names: set[str],
+    *, preserve_unspecified_properties: bool = False,
 ) -> dict[str, Any]:
     client_ref = _text(slots.get("client_ref"))
     component = _text(slots.get("component_name"))
@@ -533,7 +577,8 @@ def _compile_field(
         raise ValueError("required 必须为 boolean")
     props: dict[str, Any] = {"label": label, "name": name}
     writable = writable_props(component, context.get("capabilities"), creation=True)
-    if "required" in writable or slots.get("required") is True or ("required" in slots and component != "Switch"):
+    if ("required" in slots if preserve_unspecified_properties else
+            "required" in writable or slots.get("required") is True or ("required" in slots and component != "Switch")):
         props["required"] = slots.get("required") is True
     placeholder = _text(slots.get("placeholder"))
     if placeholder:

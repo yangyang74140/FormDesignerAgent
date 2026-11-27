@@ -91,6 +91,14 @@ resolve 响应不返回后续 SSE，继续订阅原 Run。clarification.requeste
 
 没有 SDK 澄清入口时 Agent 保留非执行 question/choices 或 clarificationOptions，客户端可以展示但不能编造 interrupt_id。首次回答后仍有关键歧义时本次实现返回 needs_clarification，不自动无限追问。客户端布局、推荐标记及四项卡片渲染仍须 ai-chat 实施核验；本仓库未修改该项目。接口标记 resolve 为“部分可用”，发布前必须联调真实等待、其他文本、取消、重连恢复和过期 revision。
 
+### 无表单实例时先确认生成
+
+当前宿主已约定 `currentSchema.fields=[]` 且 `canvas.isBlank=true` 表示无表单实例；已有字段时保留原增删改路径。无表单而请求新增/修改/删除字段，Agent 先通过原生等待输出“先准备空白表单，再添加字段 / 取消”，不立即返回应用卡。2026-11-27 用户修订：确认只准备非执行空白草稿，不立即创建真实表单。随后一题一轮补齐名称→具体组件类型→当前可新增属性；缺失或模糊继续追问，不猜 Input/required=false，不重跑模型。信息充足才返回已有新建确认卡。取消以 no_change 结束；暂停保留 fieldClarification；选“剩下稍后编辑”只省略可选值，核心名称/类型及真实选项缺失仍不生成。未开放到新增七槽位的上传、数字范围/单位、长度、日期时间等要求明确拒绝，不因属性编辑支持便假设可用于新增。
+
+业务输出标识为 `clarificationKind=form_creation_required`，等待 key 为 `form_creation_confirmation`。ai-chat 仍只根据真实 interrupt 的 ID、轮次、actions 和 input_enabled 提交原生 selected 答案：create-form 或 cancel；自由文本不授权创建。后续 SDK 单题 request 使用 max_rounds=128 和确定性轮次 key，每次只提交当前题答案；不可在点击第一道确认后关闭原 Run 订阅，也不可把新 interrupt 当成最终输出。没有 SDK 时保留非执行引导，确认或收集期间宿主快照变化则拒绝旧确认。最终提案仍需通过现有 shared.form-create-confirm 和宿主复验；本仓库实现不代表 ai-chat、平台或设计器已部署。
+
+暂停或轮次耗尽输出 `clarificationKind=field_metadata`、`fieldClarification`，消费端需保留整份非执行 proposal 供恢复，并明确没有创建真实表单。可在新请求业务输入使用 `{resume_field_clarification: 上次proposal}`；Agent 校验除 requestId 外的宿主快照并重新原生确认，再继续已知值之后的问题。这不是新增平台 invoke 参数、事件或 SDK 方法；调用者仍通过既有用户输入通道传递业务对象，消费端编辑器/UI 接入需单独实施。中途新需求先提示完成还是暂停，queuedRequests 仅待处理，当前仓库不自动替消费端发新 Run 或执行它们。最终 ready 不携带字段半成品副本。
+
 ## 2.2 字段级槽位引导（Agent 1.2.17）
 
 1.2.17 增加前置分类与一次修复：普通未分类澄清须先判定真实意图，字段新增缺草稿时修复成完整候选；上下文缺失或修复仍无效则失败，不发空选项字段问题。语义未定的候选可同时修改名称、控件及有依据属性，独立属性组保留；显式 unset 及整批复验防止跨控件残留被静默丢弃。修复在等待前完成，SDK 参数和平台事件均不变。
